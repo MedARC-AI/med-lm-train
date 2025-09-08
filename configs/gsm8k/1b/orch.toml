@@ -1,0 +1,23 @@
+max_steps = 500
+batch_size = 512
+micro_batch_size = 4
+rollouts_per_example = 16
+seq_len = 2048
+mask_truncated_completions = false
+
+[model]
+name = "willcb/Qwen3-0.6B"
+
+[monitor.wandb]
+
+[environment]
+id = "gsm8k"
+
+[monitor.wandb.log_extras]
+interval = 10
+
+[eval]
+interval = 5
+
+[ckpt]
+interval = 100

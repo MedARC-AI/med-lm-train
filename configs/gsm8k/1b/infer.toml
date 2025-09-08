@@ -1,0 +1,7 @@
+[model]
+name = "willcb/Qwen3-0.6B"
+max_model_len = 2048
+
+[parallel]
+dp = 1
+tp = 1

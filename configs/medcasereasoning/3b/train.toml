@@ -1,0 +1,17 @@
+max_steps = 500
+
+[scheduler]
+type = "linear"
+warmup_steps = 10
+
+[monitor.wandb]
+
+[model]
+name = "Qwen/Qwen2.5-3B"
+
+[optim]
+lr = 1e-6
+max_norm = 0.01
+
+[ckpt]
+interval = 100
