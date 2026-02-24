@@ -208,7 +208,6 @@ def _write_rl_outputs(
     total_gpus: int,
     train_gpus: int,
     infer_gpus: int,
-    inference_ready_timeout: int,
 ) -> Path:
     if config.inference is None:
         raise typer.BadParameter("RL requires an [inference] config.", param_hint="CONFIG_TOML")
@@ -230,7 +229,6 @@ def _write_rl_outputs(
         train_gpus=train_gpus,
         infer_gpus=infer_gpus,
         nccl_enabled=(getattr(config.trainer.weight_broadcast, "type", None) == "nccl"),
-        inference_ready_timeout=inference_ready_timeout,
     )
     return _write_script(output_dir, "rl.sh", script)
 
@@ -273,7 +271,6 @@ def rl(
     train_gpus: Annotated[int, Option("--train-gpus", min=1, max=4, help="Number of GPUs reserved for trainer processes (1..4). Total GPUs is train + infer.")] = 1,
     infer_gpus: Annotated[int, Option("--infer-gpus", min=1, max=7, help="Number of GPUs reserved for local inference server (1..7). Total GPUs is train + infer.")] = 1,
     job_name: Annotated[str | None, Option("--job-name", help="SLURM job name. Defaults to '<config stem>-rl'.")] = None,
-    inference_ready_timeout: Annotated[int, Option("--inference-ready-timeout", min=1, help="Seconds to wait for the local inference server readiness endpoint before failing the job.")] = 180,
     dry_run: Annotated[bool, Option("--dry-run", help="Write configs and script, print the `sbatch` command, and do not submit.")] = False,
     project_dir: Annotated[Path | None, Option("--project-dir", file_okay=False, dir_okay=True, help="Project root used by the script to source .env and activate .venv (defaults to current working directory).")] = None,
     hf_cache_dir: Annotated[Path | None, Option("--hf-cache-dir", file_okay=False, dir_okay=True, help="HF cache directory (sets HF_HOME inside the job). Defaults to $HF_HOME if set, else <project-dir>/.hf_cache.")] = None,
@@ -318,7 +315,6 @@ def rl(
         total_gpus=total_gpus,
         train_gpus=train_gpus,
         infer_gpus=infer_gpus,
-        inference_ready_timeout=inference_ready_timeout,
     )
     _submit_or_print(script_path, dry_run=dry_run, account=account)
 

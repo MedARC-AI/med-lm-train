@@ -4,8 +4,11 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:{{ gpus }}
-#SBATCH --output="{{ output_dir }}/slurm/job_%j.out"
-#SBATCH --error="{{ output_dir }}/slurm/job_%j.err"
+{% if gpus == 8 %}
+#SBATCH --exclusive
+{% endif %}
+#SBATCH --output="{{ output_dir }}/slurm/job_%j.log"
+#SBATCH --error="{{ output_dir }}/slurm/job_%j.log"
 
 set -euo pipefail
 
@@ -37,7 +40,16 @@ export TORCHINDUCTOR_CACHE_DIR="$JOB_TMP/torchinductor_sft"
 mkdir -p "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
 
 pick_free_ports() {
-  python - "$1" <<'PY'
+  local py_bin=""
+  if command -v python3 >/dev/null 2>&1; then
+    py_bin="python3"
+  elif command -v python >/dev/null 2>&1; then
+    py_bin="python"
+  else
+    echo "python3 (or python) is required for picking free ports." >&2
+    exit 1
+  fi
+  "$py_bin" - "$1" <<'PY'
 import socket
 import sys
 
@@ -62,6 +74,15 @@ export RDZV_PORT
 
 TRAIN_LOG_LATEST="$OUTPUT_DIR/slurm/latest_train_node_rank_0.log"
 TRAIN_LOG_JOB="$OUTPUT_DIR/slurm/job_${SLURM_JOB_ID}_train_node_rank_0.log"
+
+cleanup() {
+  if [ "${CLEANUP_DONE:-0}" -eq 1 ]; then
+    return
+  fi
+  CLEANUP_DONE=1
+  rm -rf -- "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
 
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 

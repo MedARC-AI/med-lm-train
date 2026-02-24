@@ -4,8 +4,11 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:{{ total_gpus }}
-#SBATCH --output="{{ output_dir }}/slurm/job_%j.out"
-#SBATCH --error="{{ output_dir }}/slurm/job_%j.err"
+{% if total_gpus == 8 %}
+#SBATCH --exclusive
+{% endif %}
+#SBATCH --output="{{ output_dir }}/slurm/job_%j.log"
+#SBATCH --error="{{ output_dir }}/slurm/job_%j.log"
 
 set -euo pipefail
 
@@ -19,7 +22,6 @@ export HF_HOME="$HF_CACHE_DIR"
 export TOTAL_GPUS={{ total_gpus }}
 export NUM_TRAIN_GPUS={{ train_gpus }}
 export NUM_INFER_GPUS={{ infer_gpus }}
-export INFERENCE_READY_TIMEOUT={{ inference_ready_timeout }}
 
 mkdir -p "$OUTPUT_DIR/slurm" "$OUTPUT_DIR/torchrun"
 
@@ -39,7 +41,16 @@ export JOB_TMP="${SLURM_TMPDIR:-/tmp/${USER:-user}/${SLURM_JOB_ID:-nojob}}"
 mkdir -p "$JOB_TMP"
 
 pick_free_ports() {
-  python - "$1" <<'PY'
+  local py_bin=""
+  if command -v python3 >/dev/null 2>&1; then
+    py_bin="python3"
+  elif command -v python >/dev/null 2>&1; then
+    py_bin="python"
+  else
+    echo "python3 (or python) is required for picking free ports." >&2
+    exit 1
+  fi
+  "$py_bin" - "$1" <<'PY'
 import socket
 import sys
 
@@ -60,9 +71,9 @@ PY
 missing_port_count=0
 [ -z "${INFER_PORT:-}" ] && missing_port_count=$((missing_port_count + 1))
 [ -z "${RDZV_PORT:-}" ] && missing_port_count=$((missing_port_count + 1))
-{% if nccl_enabled -%}
+{% if nccl_enabled %}
 [ -z "${WEIGHT_BROADCAST_PORT:-}" ] && missing_port_count=$((missing_port_count + 1))
-{%- endif %}
+{% endif %}
 
 if [ "$missing_port_count" -gt 0 ]; then
   read -r -a _PICKED_PORTS < <(pick_free_ports "$missing_port_count")
@@ -75,46 +86,18 @@ if [ "$missing_port_count" -gt 0 ]; then
     RDZV_PORT="${_PICKED_PORTS[$_picked_idx]}"
     _picked_idx=$((_picked_idx + 1))
   fi
-{% if nccl_enabled -%}
+{% if nccl_enabled %}
   if [ -z "${WEIGHT_BROADCAST_PORT:-}" ]; then
     WEIGHT_BROADCAST_PORT="${_PICKED_PORTS[$_picked_idx]}"
     _picked_idx=$((_picked_idx + 1))
   fi
-{%- endif %}
+{% endif %}
 fi
 
 export INFER_PORT RDZV_PORT
-{% if nccl_enabled -%}
+{% if nccl_enabled %}
 export WEIGHT_BROADCAST_PORT
-{%- endif %}
-
-declare -a GPU_IDS=()
-if [ -n "${CUDA_VISIBLE_DEVICES:-}" ]; then
-  IFS=',' read -r -a GPU_IDS <<< "$CUDA_VISIBLE_DEVICES"
-else
-  if ! command -v nvidia-smi >/dev/null 2>&1; then
-    echo "CUDA_VISIBLE_DEVICES is unset and nvidia-smi is unavailable; cannot determine GPUs." >&2
-    exit 1
-  fi
-  gpu_count="$(nvidia-smi -L 2>/dev/null | wc -l | tr -d '[:space:]')"
-  if [ -z "$gpu_count" ] || [ "$gpu_count" -lt 1 ]; then
-    echo "Unable to detect GPUs via nvidia-smi -L." >&2
-    exit 1
-  fi
-  for ((i = 0; i < gpu_count; i++)); do
-    GPU_IDS+=("$i")
-  done
-fi
-
-gpu_id_count="$(printf '%s\n' "${GPU_IDS[@]}" | wc -l | tr -d '[:space:]')"
-if [ "$gpu_id_count" -ne "$TOTAL_GPUS" ]; then
-  echo "Expected $TOTAL_GPUS GPUs, found $gpu_id_count (CUDA_VISIBLE_DEVICES='${CUDA_VISIBLE_DEVICES:-}')." >&2
-  exit 1
-fi
-
-INFER_GPU_IDS="$(IFS=,; echo "${GPU_IDS[*]:0:NUM_INFER_GPUS}")"
-TRAIN_GPU_IDS="$(IFS=,; echo "${GPU_IDS[*]:NUM_INFER_GPUS:NUM_TRAIN_GPUS}")"
-export INFER_GPU_IDS TRAIN_GPU_IDS
+{% endif %}
 
 INFER_LATEST_LOG="$OUTPUT_DIR/slurm/latest_infer_node_rank_0.log"
 INFER_JOB_LOG="$OUTPUT_DIR/slurm/job_${SLURM_JOB_ID}_infer_node_rank_0.log"
@@ -124,144 +107,117 @@ TRAIN_LATEST_LOG="$OUTPUT_DIR/slurm/latest_train_node_rank_0.log"
 TRAIN_JOB_LOG="$OUTPUT_DIR/slurm/job_${SLURM_JOB_ID}_train_node_rank_0.log"
 export INFER_LATEST_LOG INFER_JOB_LOG ORCH_LATEST_LOG ORCH_JOB_LOG TRAIN_LATEST_LOG TRAIN_JOB_LOG
 
-kill_group() {
-  local pgid="${1:-}"
-  if [ -n "$pgid" ] && kill -0 "$pgid" 2>/dev/null; then
-    kill -- "-$pgid" 2>/dev/null || true
-  fi
-}
+INFER_XDG_CACHE_HOME="$JOB_TMP/xdg_infer"
+INFER_TRITON_CACHE_DIR="$JOB_TMP/triton_infer"
+INFER_TORCHINDUCTOR_CACHE_DIR="$JOB_TMP/torchinductor_infer"
+ORCH_XDG_CACHE_HOME="$JOB_TMP/xdg_orch"
+ORCH_TRITON_CACHE_DIR="$JOB_TMP/triton_orch"
+ORCH_TORCHINDUCTOR_CACHE_DIR="$JOB_TMP/torchinductor_orch"
+TRAIN_XDG_CACHE_HOME="$JOB_TMP/xdg_train"
+TRAIN_TRITON_CACHE_DIR="$JOB_TMP/triton_train"
+TRAIN_TORCHINDUCTOR_CACHE_DIR="$JOB_TMP/torchinductor_train"
+export \
+  INFER_XDG_CACHE_HOME INFER_TRITON_CACHE_DIR INFER_TORCHINDUCTOR_CACHE_DIR \
+  ORCH_XDG_CACHE_HOME ORCH_TRITON_CACHE_DIR ORCH_TORCHINDUCTOR_CACHE_DIR \
+  TRAIN_XDG_CACHE_HOME TRAIN_TRITON_CACHE_DIR TRAIN_TORCHINDUCTOR_CACHE_DIR
 
 cleanup() {
   if [ "${CLEANUP_DONE:-0}" -eq 1 ]; then
     return
   fi
   CLEANUP_DONE=1
-  [ -n "${WATCHER_PID:-}" ] && kill "${WATCHER_PID}" 2>/dev/null || true
-  kill_group "${ORCH_PGID:-}"
-  kill_group "${INFER_PGID:-}"
+  [ -n "${ORCH_SRUN_PID:-}" ] && kill "${ORCH_SRUN_PID}" 2>/dev/null || true
+  [ -n "${INFER_SRUN_PID:-}" ] && kill "${INFER_SRUN_PID}" 2>/dev/null || true
+
+  rm -rf -- \
+    "$INFER_XDG_CACHE_HOME" "$INFER_TRITON_CACHE_DIR" "$INFER_TORCHINDUCTOR_CACHE_DIR" \
+    "$ORCH_XDG_CACHE_HOME" "$ORCH_TRITON_CACHE_DIR" "$ORCH_TORCHINDUCTOR_CACHE_DIR" \
+    "$TRAIN_XDG_CACHE_HOME" "$TRAIN_TRITON_CACHE_DIR" "$TRAIN_TORCHINDUCTOR_CACHE_DIR" \
+    2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-start_inference() {
-  setsid bash -c '
-    set -euo pipefail
-    export XDG_CACHE_HOME="$JOB_TMP/xdg_infer"
-    export TRITON_CACHE_DIR="$JOB_TMP/triton_infer"
-    export TORCHINDUCTOR_CACHE_DIR="$JOB_TMP/torchinductor_infer"
-    mkdir -p "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
-    export VLLM_WORKER_MULTIPROC_METHOD=spawn
-    export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
-    CUDA_VISIBLE_DEVICES="$INFER_GPU_IDS" uv run inference \
-      @ "$CONFIG_DIR/inference.toml" \
-      --server.host 127.0.0.1 \
-      --server.port "$INFER_PORT" \
-      2>&1 | tee "$INFER_LATEST_LOG" "$INFER_JOB_LOG"
-  ' &
-  INFER_PGID=$!
-}
+echo "Starting inference (vLLM) on 127.0.0.1:${INFER_PORT} using ${NUM_INFER_GPUS} GPU(s)"
+srun --overlap --ntasks=1 --gres=gpu:"$NUM_INFER_GPUS" bash -lc '
+  set -euo pipefail
+  [ -f "$PROJECT_DIR/.env" ] && source "$PROJECT_DIR/.env"
+  source "$PROJECT_DIR/.venv/bin/activate"
 
-start_orchestrator() {
-  setsid bash -c '
-    set -euo pipefail
-    export XDG_CACHE_HOME="$JOB_TMP/xdg_orch"
-    export TRITON_CACHE_DIR="$JOB_TMP/triton_orch"
-    export TORCHINDUCTOR_CACHE_DIR="$JOB_TMP/torchinductor_orch"
-    mkdir -p "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
-    uv run orchestrator \
-      @ "$CONFIG_DIR/orchestrator.toml" \
-      --client.base-url "http://127.0.0.1:${INFER_PORT}/v1" \
-{% if nccl_enabled -%}
-      --weight_broadcast.host 127.0.0.1 \
-      --weight_broadcast.port "$WEIGHT_BROADCAST_PORT" \
-{%- endif %}
-      2>&1 | tee "$ORCH_LATEST_LOG" "$ORCH_JOB_LOG"
-  ' &
-  ORCH_PGID=$!
-}
+  export XDG_CACHE_HOME="$INFER_XDG_CACHE_HOME"
+  export TRITON_CACHE_DIR="$INFER_TRITON_CACHE_DIR"
+  export TORCHINDUCTOR_CACHE_DIR="$INFER_TORCHINDUCTOR_CACHE_DIR"
+  mkdir -p "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
 
-wait_for_inference_ready() {
-  if ! command -v curl >/dev/null 2>&1; then
-    echo "curl is required for the inference readiness check but is not installed." >&2
-    return 1
-  fi
-  local deadline=$((SECONDS + INFERENCE_READY_TIMEOUT))
-  while true; do
-    if curl -fsS "http://127.0.0.1:${INFER_PORT}/v1/models" >/dev/null 2>&1; then
-      return 0
-    fi
-    if ! kill -0 "$INFER_PGID" 2>/dev/null; then
-      echo "Inference exited before becoming ready." >&2
-      tail -n 200 "$INFER_LATEST_LOG" >&2 || true
-      return 1
-    fi
-    if [ "$SECONDS" -ge "$deadline" ]; then
-      echo "Timed out waiting for inference readiness at http://127.0.0.1:${INFER_PORT}/v1/models" >&2
-      tail -n 200 "$INFER_LATEST_LOG" >&2 || true
-      return 1
-    fi
-    sleep 1
-  done
-}
+  export VLLM_WORKER_MULTIPROC_METHOD=spawn
+  export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
 
-watch_background_services() {
-  while true; do
-    if ! kill -0 "$INFER_PGID" 2>/dev/null; then
-      echo "Inference exited unexpectedly." >&2
-      tail -n 200 "$INFER_LATEST_LOG" >&2 || true
-      kill -TERM "$$" 2>/dev/null || true
-      return 1
-    fi
-    if ! kill -0 "$ORCH_PGID" 2>/dev/null; then
-      echo "Orchestrator exited unexpectedly." >&2
-      tail -n 200 "$ORCH_LATEST_LOG" >&2 || true
-      kill -TERM "$$" 2>/dev/null || true
-      return 1
-    fi
-    sleep 2
-  done
-}
+  uv run inference \
+    @ "$CONFIG_DIR/inference.toml" \
+    --server.host 127.0.0.1 \
+    --server.port "$INFER_PORT" \
+    2>&1 | tee "$INFER_LATEST_LOG" "$INFER_JOB_LOG"
+' &
+INFER_SRUN_PID=$!
 
-start_inference
-wait_for_inference_ready
-start_orchestrator
+echo "Starting orchestrator (expected to wait for vLLM readiness)"
+srun --overlap --ntasks=1 bash -lc '
+  set -euo pipefail
+  [ -f "$PROJECT_DIR/.env" ] && source "$PROJECT_DIR/.env"
+  source "$PROJECT_DIR/.venv/bin/activate"
 
-if ! kill -0 "$ORCH_PGID" 2>/dev/null; then
-  echo "Orchestrator failed immediately after launch." >&2
-  tail -n 200 "$ORCH_LATEST_LOG" >&2 || true
-  exit 1
-fi
+  export XDG_CACHE_HOME="$ORCH_XDG_CACHE_HOME"
+  export TRITON_CACHE_DIR="$ORCH_TRITON_CACHE_DIR"
+  export TORCHINDUCTOR_CACHE_DIR="$ORCH_TORCHINDUCTOR_CACHE_DIR"
+  mkdir -p "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
 
-watch_background_services &
-WATCHER_PID=$!
+  uv run orchestrator \
+    @ "$CONFIG_DIR/orchestrator.toml" \
+    --client.base-url "http://127.0.0.1:${INFER_PORT}/v1" \
+{% if nccl_enabled %}
+    --weight_broadcast.host 127.0.0.1 \
+    --weight_broadcast.port "$WEIGHT_BROADCAST_PORT" \
+{% endif %}
+    2>&1 | tee "$ORCH_LATEST_LOG" "$ORCH_JOB_LOG"
+' &
+ORCH_SRUN_PID=$!
 
-export XDG_CACHE_HOME="$JOB_TMP/xdg_train"
-export TRITON_CACHE_DIR="$JOB_TMP/triton_train"
-export TORCHINDUCTOR_CACHE_DIR="$JOB_TMP/torchinductor_train"
-mkdir -p "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
-export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
-
+echo "Starting training using ${NUM_TRAIN_GPUS} GPU(s)"
 set +e
-CUDA_VISIBLE_DEVICES="$TRAIN_GPU_IDS" uv run torchrun \
-  --nnodes=1 \
-  --nproc-per-node "$NUM_TRAIN_GPUS" \
-  --node-rank=0 \
-  --rdzv-endpoint=127.0.0.1:$RDZV_PORT \
-  --rdzv-id=job_$SLURM_JOB_ID \
-  --log-dir "$OUTPUT_DIR/torchrun" \
-  --tee=3 \
-  --redirects=3 \
-  --local-ranks-filter "$(seq -s, 0 $((NUM_TRAIN_GPUS - 1)))" \
-  -m prime_rl.trainer.rl.train \
-  @ "$CONFIG_DIR/trainer.toml" \
-{% if nccl_enabled -%}
-  --weight_broadcast.host 127.0.0.1 \
-  --weight_broadcast.port "$WEIGHT_BROADCAST_PORT" \
-{%- endif %}
-  2>&1 | tee "$TRAIN_LATEST_LOG" "$TRAIN_JOB_LOG"
+srun --overlap --ntasks=1 --gres=gpu:"$NUM_TRAIN_GPUS" bash -lc '
+  set -euo pipefail
+  [ -f "$PROJECT_DIR/.env" ] && source "$PROJECT_DIR/.env"
+  source "$PROJECT_DIR/.venv/bin/activate"
+
+  export XDG_CACHE_HOME="$TRAIN_XDG_CACHE_HOME"
+  export TRITON_CACHE_DIR="$TRAIN_TRITON_CACHE_DIR"
+  export TORCHINDUCTOR_CACHE_DIR="$TRAIN_TORCHINDUCTOR_CACHE_DIR"
+  mkdir -p "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
+
+  export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
+
+  uv run torchrun \
+    --nnodes=1 \
+    --nproc-per-node "$NUM_TRAIN_GPUS" \
+    --node-rank=0 \
+    --rdzv-endpoint=127.0.0.1:$RDZV_PORT \
+    --rdzv-id=job_$SLURM_JOB_ID \
+    --log-dir "$OUTPUT_DIR/torchrun" \
+    --tee=3 \
+    --redirects=3 \
+    --local-ranks-filter "$(seq -s, 0 $((NUM_TRAIN_GPUS - 1)))" \
+    -m prime_rl.trainer.rl.train \
+    @ "$CONFIG_DIR/trainer.toml" \
+{% if nccl_enabled %}
+    --weight_broadcast.host 127.0.0.1 \
+    --weight_broadcast.port "$WEIGHT_BROADCAST_PORT" \
+{% endif %}
+    2>&1 | tee "$TRAIN_LATEST_LOG" "$TRAIN_JOB_LOG"
+'
 TRAIN_EXIT_CODE=$?
 set -e
 
-[ -n "${WATCHER_PID:-}" ] && kill "$WATCHER_PID" 2>/dev/null || true
-wait "${WATCHER_PID:-}" 2>/dev/null || true
+cleanup
+wait "${INFER_SRUN_PID:-}" 2>/dev/null || true
+wait "${ORCH_SRUN_PID:-}" 2>/dev/null || true
 
 exit "$TRAIN_EXIT_CODE"
