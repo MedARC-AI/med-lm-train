@@ -16,6 +16,8 @@ from prime_rl.rl_config import RLConfig
 from prime_rl.trainer.sft.config import SFTTrainerConfig
 from prime_rl.utils.pydantic_config import extract_toml_paths
 
+from medarc_rl.utils import maybe_autoset_auth_env
+
 
 app = typer.Typer(add_completion=False, help="Generate single-node SLURM jobs for PRIME-RL SFT/RL.")
 
@@ -78,7 +80,13 @@ def _write_script(output_dir: Path, name: str, text: str) -> Path:
     return path
 
 
-def _submit_or_print(script_path: Path, *, dry_run: bool, account: str | None = None) -> None:
+def _submit_or_print(
+    script_path: Path,
+    *,
+    dry_run: bool,
+    account: str | None = None,
+    env: dict[str, str] | None = None,
+) -> None:
     if account is None:
         account = os.environ.get("SBATCH_ACCOUNT") or os.environ.get("SLURM_ACCOUNT")
 
@@ -92,7 +100,7 @@ def _submit_or_print(script_path: Path, *, dry_run: bool, account: str | None = 
         typer.echo(cmd)
         return
 
-    result = subprocess.run(sbatch_cmd, capture_output=True, text=True)
+    result = subprocess.run(sbatch_cmd, capture_output=True, text=True, env=env)
     if result.returncode != 0:
         typer.echo(result.stderr.strip() or "sbatch failed", err=True)
         raise typer.Exit(code=1)
@@ -180,8 +188,9 @@ def sft(
     gpus: Annotated[int, Option("--gpus", min=1, max=8, help="Number of GPUs for SFT on this single node (sets SLURM gres and torchrun nproc-per-node).")],
     job_name: Annotated[str | None, Option("--job-name", help="SLURM job name. Defaults to '<config stem>-sft'.")] = None,
     dry_run: Annotated[bool, Option("--dry-run", help="Write configs and script, print the `sbatch` command, and do not submit.")] = False,
+    auto_auth: Annotated[bool, Option("--auto-auth/--no-auto-auth", help="If HF_TOKEN or WANDB_API_KEY are missing, try to load them from local CLI credentials and inject them into the sbatch submission environment.")] = False,
     project_dir: Annotated[Path | None, Option("--project-dir", file_okay=False, dir_okay=True, help="Project root used by the script to source .env and activate .venv (defaults to current working directory).")] = None,
-    hf_cache_dir: Annotated[Path | None, Option("--hf-cache-dir", file_okay=False, dir_okay=True, help="HF cache directory (sets HF_HOME inside the job). Defaults to $HF_HOME if set, else <project-dir>/.hf_cache.")] = None,
+    hf_cache_dir: Annotated[Path, Option("--hf-cache-dir", file_okay=False, dir_okay=True, help="HF cache directory (sets HF_HOME inside the job).")] = "/data/medlm_cache/.hf_cache",
     hf_hub_offline: Annotated[bool, Option("--hf-hub-offline/--no-hf-hub-offline", help="Set HF_HUB_OFFLINE=1 inside the job to prevent runtime downloads.")] = False,
     account: Annotated[str | None, Option("--account", help="SLURM account to pass to sbatch. Defaults to $SBATCH_ACCOUNT or $SLURM_ACCOUNT if set.")] = None,
 ) -> None: # fmt: skip
@@ -201,7 +210,10 @@ def sft(
         job_name=job_name,
         gpus=gpus,
     )
-    _submit_or_print(script_path, dry_run=dry_run, account=account)
+    submit_env = os.environ.copy()
+    for msg in maybe_autoset_auth_env(submit_env, enabled=auto_auth, project_dir=project_dir):
+        typer.echo(msg, err=True)
+    _submit_or_print(script_path, dry_run=dry_run, account=account, env=submit_env)
 
 
 @app.command()
@@ -212,8 +224,9 @@ def rl(
     infer_gpus: Annotated[int, Option("--infer-gpus", min=1, max=7, help="Number of GPUs reserved for local inference server (1..7). Total GPUs is train + infer.")] = 1,
     job_name: Annotated[str | None, Option("--job-name", help="SLURM job name. Defaults to '<config stem>-rl'.")] = None,
     dry_run: Annotated[bool, Option("--dry-run", help="Write configs and script, print the `sbatch` command, and do not submit.")] = False,
+    auto_auth: Annotated[bool, Option("--auto-auth/--no-auto-auth", help="If HF_TOKEN or WANDB_API_KEY are missing, try to load them from local CLI credentials and inject them into the sbatch submission environment.")] = False,
     project_dir: Annotated[Path | None, Option("--project-dir", file_okay=False, dir_okay=True, help="Project root used by the script to source .env and activate .venv (defaults to current working directory).")] = None,
-    hf_cache_dir: Annotated[Path | None, Option("--hf-cache-dir", file_okay=False, dir_okay=True, help="HF cache directory (sets HF_HOME inside the job). Defaults to $HF_HOME if set, else <project-dir>/.hf_cache.")] = None,
+    hf_cache_dir: Annotated[Path, Option("--hf-cache-dir", file_okay=False, dir_okay=True, help="HF cache directory (sets HF_HOME inside the job).")] = "/data/medlm_cache/.hf_cache",
     hf_hub_offline: Annotated[bool, Option("--hf-hub-offline/--no-hf-hub-offline", help="Set HF_HUB_OFFLINE=1 inside the job to prevent runtime downloads.")] = False,
     account: Annotated[str | None, Option("--account", help="SLURM account to pass to sbatch. Defaults to $SBATCH_ACCOUNT or $SLURM_ACCOUNT if set.")] = None,
 ) -> None:  # fmt: skip
@@ -251,7 +264,10 @@ def rl(
         train_gpus=train_gpus,
         infer_gpus=infer_gpus,
     )
-    _submit_or_print(script_path, dry_run=dry_run, account=account)
+    submit_env = os.environ.copy()
+    for msg in maybe_autoset_auth_env(submit_env, enabled=auto_auth, project_dir=project_dir):
+        typer.echo(msg, err=True)
+    _submit_or_print(script_path, dry_run=dry_run, account=account, env=submit_env)
 
 
 if __name__ == "__main__":

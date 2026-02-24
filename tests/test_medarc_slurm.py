@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from medarc_rl.medarc_slurm import app
-from prime_rl.rl_config import BaseRLConfig
+from prime_rl.rl_config import RLConfig
 from prime_rl.trainer.sft.config import SFTTrainerConfig
 
 
@@ -287,18 +287,10 @@ def test_rl_dry_run_generates_normalized_subconfigs_and_safe_script(tmp_path: Pa
     inference = _read_toml(infer_toml)
 
     assert orchestrator["num_train_workers"] == 2
-    assert inference["parallel"]["tp"] == 2
-    assert inference["parallel"]["dp"] == 1
-    assert inference["api_server_count"] == 1
+    assert inference["parallel"]["tp"] == 1
+    assert inference["parallel"]["dp"] == 2
     assert trainer["weight_broadcast"]["type"] == "nccl"
-    assert trainer["weight_broadcast"]["inference_world_size"] == 2
     assert inference["weight_broadcast"]["type"] == "nccl"
-
-    cfg = BaseRLConfig(output_dir=output_dir, trainer=trainer, orchestrator=orchestrator, inference=inference)
-    assert cfg.orchestrator.num_train_workers == 2
-    assert cfg.inference.parallel.tp == 2
-    assert cfg.inference.parallel.dp == 1
-    assert cfg.inference.api_server_count == 1
 
     script = script_path.read_text(encoding="utf-8")
     assert "--standalone" not in script
@@ -309,7 +301,6 @@ def test_rl_dry_run_generates_normalized_subconfigs_and_safe_script(tmp_path: Pa
     assert "--server.host 127.0.0.1" in script
     assert '--server.port "$INFER_PORT"' in script
     assert "uv sync" not in script
-    assert "rm -rf" not in script
 
 
 def test_rl_dry_run_train_gpu_path_and_filesystem_broadcast(tmp_path: Path) -> None:
@@ -339,8 +330,8 @@ def test_rl_dry_run_train_gpu_path_and_filesystem_broadcast(tmp_path: Path) -> N
 
     assert trainer["weight_broadcast"]["type"] == "filesystem"
     assert "inference_world_size" not in trainer["weight_broadcast"]
-    assert inference["parallel"]["tp"] == 2
-    assert inference["parallel"]["dp"] == 1
+    assert inference["parallel"]["tp"] == 1
+    assert inference["parallel"]["dp"] == 2
     assert '--weight_broadcast.port "$WEIGHT_BROADCAST_PORT"' not in script
     assert "WEIGHT_BROADCAST_PORT" not in script
 

@@ -7,6 +7,7 @@
 {% if total_gpus == 8 %}
 #SBATCH --exclusive
 {% endif %}
+#SBATCH --export=ALL
 #SBATCH --output="{{ output_dir }}/slurm/job_%j.log"
 #SBATCH --error="{{ output_dir }}/slurm/job_%j.log"
 
@@ -26,8 +27,10 @@ export NUM_INFER_GPUS={{ infer_gpus }}
 mkdir -p "$OUTPUT_DIR/slurm" "$OUTPUT_DIR/torchrun"
 
 if [ -f "$PROJECT_DIR/.env" ]; then
+  set -a
   # shellcheck disable=SC1091
   source "$PROJECT_DIR/.env"
+  set +a
 fi
 # shellcheck disable=SC1091
 source "$PROJECT_DIR/.venv/bin/activate"
@@ -163,7 +166,11 @@ trap cleanup EXIT INT TERM
 echo "Starting inference (vLLM) on 127.0.0.1:${INFER_PORT} using ${NUM_INFER_GPUS} GPU(s) (CUDA_VISIBLE_DEVICES=$INFER_GPU_IDS)"
 setsid bash -lc '
   set -euo pipefail
-  [ -f "$PROJECT_DIR/.env" ] && source "$PROJECT_DIR/.env"
+  if [ -f "$PROJECT_DIR/.env" ]; then
+    set -a
+    source "$PROJECT_DIR/.env"
+    set +a
+  fi
   source "$PROJECT_DIR/.venv/bin/activate"
 
   export XDG_CACHE_HOME="$INFER_XDG_CACHE_HOME"
@@ -185,7 +192,11 @@ INFER_PGID=$!
 echo "Starting orchestrator (expected to wait for vLLM readiness)"
 setsid bash -lc '
   set -euo pipefail
-  [ -f "$PROJECT_DIR/.env" ] && source "$PROJECT_DIR/.env"
+  if [ -f "$PROJECT_DIR/.env" ]; then
+    set -a
+    source "$PROJECT_DIR/.env"
+    set +a
+  fi
   source "$PROJECT_DIR/.venv/bin/activate"
 
   export XDG_CACHE_HOME="$ORCH_XDG_CACHE_HOME"
@@ -205,7 +216,11 @@ echo "Starting training using ${NUM_TRAIN_GPUS} GPU(s) (CUDA_VISIBLE_DEVICES=$TR
 set +e
 CUDA_VISIBLE_DEVICES="$TRAIN_GPU_IDS" bash -lc '
   set -euo pipefail
-  [ -f "$PROJECT_DIR/.env" ] && source "$PROJECT_DIR/.env"
+  if [ -f "$PROJECT_DIR/.env" ]; then
+    set -a
+    source "$PROJECT_DIR/.env"
+    set +a
+  fi
   source "$PROJECT_DIR/.venv/bin/activate"
 
   export XDG_CACHE_HOME="$TRAIN_XDG_CACHE_HOME"
