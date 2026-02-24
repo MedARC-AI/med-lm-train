@@ -1,0 +1,37 @@
+max_steps = 20
+seq_len = 2048
+max_async_level = 1
+
+[model]
+name = "PrimeIntellect/Qwen3-0.6B-Reverse-Text-SFT"
+
+[weight_broadcast]
+type = "nccl"
+
+[orchestrator]
+batch_size = 256
+rollouts_per_example = 16
+oversampling_factor = 1.5
+max_concurrent = 256
+
+[orchestrator.sampling]
+max_tokens = 128
+
+[[orchestrator.env]]
+id = "reverse-text"
+
+[trainer.model]
+attn = "flash_attention_3"
+
+[trainer.model.compile]
+
+[trainer.optim]
+lr = 3e-6
+
+[ckpt]
+
+[inference]
+gpu_memory_utilization = 0.92
+
+[inference.model]
+dtype = "bfloat16"
