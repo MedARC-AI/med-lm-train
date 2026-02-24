@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -96,13 +97,21 @@ def _write_script(output_dir: Path, name: str, text: str) -> Path:
     return path
 
 
-def _submit_or_print(script_path: Path, *, dry_run: bool) -> None:
-    cmd = f"sbatch {script_path}"
+def _submit_or_print(script_path: Path, *, dry_run: bool, account: str | None = None) -> None:
+    if account is None:
+        account = os.environ.get("SBATCH_ACCOUNT") or os.environ.get("SLURM_ACCOUNT")
+
+    sbatch_cmd = ["sbatch"]
+    if account:
+        sbatch_cmd.extend(["--account", account])
+    sbatch_cmd.append(str(script_path))
+
+    cmd = shlex.join(sbatch_cmd)
     if dry_run:
         typer.echo(cmd)
         return
 
-    result = subprocess.run(["sbatch", str(script_path)], capture_output=True, text=True)
+    result = subprocess.run(sbatch_cmd, capture_output=True, text=True)
     if result.returncode != 0:
         typer.echo(result.stderr.strip() or "sbatch failed", err=True)
         raise typer.Exit(code=1)
@@ -236,6 +245,7 @@ def sft(
     project_dir: Annotated[Path | None, Option("--project-dir", file_okay=False, dir_okay=True, help="Project root used by the script to source .env and activate .venv (defaults to current working directory).")] = None,
     hf_cache_dir: Annotated[Path | None, Option("--hf-cache-dir", file_okay=False, dir_okay=True, help="HF cache directory (sets HF_HOME inside the job). Defaults to $HF_HOME if set, else <project-dir>/.hf_cache.")] = None,
     hf_hub_offline: Annotated[bool, Option("--hf-hub-offline/--no-hf-hub-offline", help="Set HF_HUB_OFFLINE=1 inside the job to prevent runtime downloads.")] = False,
+    account: Annotated[str | None, Option("--account", help="SLURM account to pass to sbatch. Defaults to $SBATCH_ACCOUNT or $SLURM_ACCOUNT if set.")] = None,
 ) -> None: # fmt: skip
     output_dir = output_dir.expanduser().resolve()
     project_dir = _resolve_path(project_dir, Path.cwd())
@@ -253,7 +263,7 @@ def sft(
         job_name=job_name,
         gpus=gpus,
     )
-    _submit_or_print(script_path, dry_run=dry_run)
+    _submit_or_print(script_path, dry_run=dry_run, account=account)
 
 
 @app.command()
@@ -268,6 +278,7 @@ def rl(
     project_dir: Annotated[Path | None, Option("--project-dir", file_okay=False, dir_okay=True, help="Project root used by the script to source .env and activate .venv (defaults to current working directory).")] = None,
     hf_cache_dir: Annotated[Path | None, Option("--hf-cache-dir", file_okay=False, dir_okay=True, help="HF cache directory (sets HF_HOME inside the job). Defaults to $HF_HOME if set, else <project-dir>/.hf_cache.")] = None,
     hf_hub_offline: Annotated[bool, Option("--hf-hub-offline/--no-hf-hub-offline", help="Set HF_HUB_OFFLINE=1 inside the job to prevent runtime downloads.")] = False,
+    account: Annotated[str | None, Option("--account", help="SLURM account to pass to sbatch. Defaults to $SBATCH_ACCOUNT or $SLURM_ACCOUNT if set.")] = None,
 ) -> None:  # fmt: skip
     output_dir = output_dir.expanduser().resolve()
     project_dir = _resolve_path(project_dir, Path.cwd())
@@ -309,7 +320,7 @@ def rl(
         infer_gpus=infer_gpus,
         inference_ready_timeout=inference_ready_timeout,
     )
-    _submit_or_print(script_path, dry_run=dry_run)
+    _submit_or_print(script_path, dry_run=dry_run, account=account)
 
 
 if __name__ == "__main__":
