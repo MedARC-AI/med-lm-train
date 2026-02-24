@@ -193,14 +193,11 @@ setsid bash -lc '
   export TORCHINDUCTOR_CACHE_DIR="$ORCH_TORCHINDUCTOR_CACHE_DIR"
   mkdir -p "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
 
-  uv run orchestrator \
-    @ "$CONFIG_DIR/orchestrator.toml" \
-    --client.base-url "http://127.0.0.1:${INFER_PORT}/v1" \
+  orch_cmd=(uv run orchestrator @ "$CONFIG_DIR/orchestrator.toml" --client.base-url "http://127.0.0.1:${INFER_PORT}/v1")
 {% if nccl_enabled %}
-    --weight_broadcast.host 127.0.0.1 \
-    --weight_broadcast.port "$WEIGHT_BROADCAST_PORT" \
+  orch_cmd+=(--weight_broadcast.host 127.0.0.1 --weight_broadcast.port "$WEIGHT_BROADCAST_PORT")
 {% endif %}
-    2>&1 | tee "$ORCH_LATEST_LOG" "$ORCH_JOB_LOG"
+  "${orch_cmd[@]}" 2>&1 | tee "$ORCH_LATEST_LOG" "$ORCH_JOB_LOG"
 ' &
 ORCH_PGID=$!
 
@@ -218,7 +215,7 @@ CUDA_VISIBLE_DEVICES="$TRAIN_GPU_IDS" bash -lc '
 
   export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 
-  uv run torchrun \
+  train_cmd=(uv run torchrun \
     --nnodes=1 \
     --nproc-per-node "$NUM_TRAIN_GPUS" \
     --node-rank=0 \
@@ -229,12 +226,11 @@ CUDA_VISIBLE_DEVICES="$TRAIN_GPU_IDS" bash -lc '
     --redirects=3 \
     --local-ranks-filter "$(seq -s, 0 $((NUM_TRAIN_GPUS - 1)))" \
     -m prime_rl.trainer.rl.train \
-    @ "$CONFIG_DIR/trainer.toml" \
+    @ "$CONFIG_DIR/trainer.toml")
 {% if nccl_enabled %}
-    --weight_broadcast.host 127.0.0.1 \
-    --weight_broadcast.port "$WEIGHT_BROADCAST_PORT" \
+  train_cmd+=(--weight_broadcast.host 127.0.0.1 --weight_broadcast.port "$WEIGHT_BROADCAST_PORT")
 {% endif %}
-    2>&1 | tee "$TRAIN_LATEST_LOG" "$TRAIN_JOB_LOG"
+  "${train_cmd[@]}" 2>&1 | tee "$TRAIN_LATEST_LOG" "$TRAIN_JOB_LOG"
 '
 TRAIN_EXIT_CODE=$?
 set -e
