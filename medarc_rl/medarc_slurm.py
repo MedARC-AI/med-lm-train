@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import shlex
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Annotated, Any, TypeVar
@@ -13,10 +12,7 @@ from jinja2 import Environment, FileSystemLoader
 from pydantic import ValidationError
 from typer import Argument, Option
 
-from prime_rl.inference.config import InferenceConfig
-from prime_rl.orchestrator.config import OrchestratorConfig
-from prime_rl.rl_config import BaseRLConfig
-from prime_rl.trainer.rl.config import RLTrainerConfig
+from prime_rl.rl_config import RLConfig
 from prime_rl.trainer.sft.config import SFTTrainerConfig
 from prime_rl.utils.pydantic_config import extract_toml_paths
 
@@ -39,21 +35,6 @@ def _default_hf_cache_dir(project_dir: Path, explicit: Path | None) -> Path:
         return Path(env_hf_home).expanduser().resolve()
     return (project_dir / ".hf_cache").resolve()
 
-
-def _detect_local_gpu_count() -> int | None:
-    cuda_visible_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
-    if cuda_visible_devices:
-        gpu_ids = [gpu_id.strip() for gpu_id in cuda_visible_devices.split(",") if gpu_id.strip()]
-        if gpu_ids:
-            return len(gpu_ids)
-
-    if not shutil.which("nvidia-smi"):
-        return None
-    result = subprocess.run(["nvidia-smi", "-L"], capture_output=True, text=True)
-    if result.returncode != 0:
-        return None
-    lines = [line for line in result.stdout.splitlines() if line.strip()]
-    return len(lines) or None
 
 
 def _ensure_output_dirs(output_dir: Path) -> None:
@@ -122,54 +103,13 @@ def _load_sft_config(config_toml: Path, output_dir: Path) -> SFTTrainerConfig:
     return _load_settings_from_toml(SFTTrainerConfig, config_toml, output_dir=output_dir)
 
 
-def _load_rl_config(config_toml: Path, output_dir: Path) -> BaseRLConfig:
-    return _load_settings_from_toml(BaseRLConfig, config_toml, output_dir=output_dir)
-
-
-def _normalize_rl_config(config: BaseRLConfig, *, train_gpus: int, infer_gpus: int) -> None:
-    if config.inference is None:
-        raise typer.BadParameter("RL requires an [inference] config.", param_hint="CONFIG_TOML")
-
-    non_data_parallel_size = config.trainer.model.cp * config.trainer.model.tp
-    if non_data_parallel_size < 1:
-        raise typer.BadParameter("trainer.model.cp * trainer.model.tp must be >= 1.", param_hint="CONFIG_TOML")
-    if train_gpus % non_data_parallel_size != 0:
-        raise typer.BadParameter(
-            (
-                "train_gpus must be divisible by trainer.model.cp * trainer.model.tp "
-                f"(train_gpus={train_gpus}, cp={config.trainer.model.cp}, tp={config.trainer.model.tp})."
-            ),
-            param_hint="--train-gpus",
-        )
-
-    config.orchestrator.num_train_workers = train_gpus // non_data_parallel_size
-    config.inference.parallel.tp = infer_gpus
-    config.inference.parallel.dp = 1
-    config.inference.api_server_count = 1
-
-    # BaseRLConfig validators have already propagated shared weight_broadcast and, for NCCL,
-    # derived trainer.weight_broadcast.inference_world_size using the pre-normalized inference
-    # dp/tp values from the input TOML. We patch the final single-node split values here so the
-    # dumped subconfigs match the runtime topology.
-    if config.weight_broadcast is not None:
-        config.inference.weight_broadcast.type = config.weight_broadcast.type
-    if getattr(config.trainer.weight_broadcast, "type", None) == "nccl":
-        config.trainer.weight_broadcast.inference_world_size = infer_gpus
-
-
-def _revalidate_rl_config(config: BaseRLConfig) -> BaseRLConfig:
-    """Re-run PrimeRL validators after medarc-specific topology normalization."""
-    payload = config.model_dump(mode="json")
-
-    # Revalidate nested subconfigs first so trainer/orchestrator/inference-specific
-    # constraints (e.g. NCCL + async-level) fail before submission.
-    payload["trainer"] = RLTrainerConfig.model_validate(payload["trainer"]).model_dump(mode="json")
-    payload["orchestrator"] = OrchestratorConfig.model_validate(payload["orchestrator"]).model_dump(mode="json")
-    if payload.get("inference") is not None:
-        payload["inference"] = InferenceConfig.model_validate(payload["inference"]).model_dump(mode="json")
-
-    # Revalidate shared/top-level consistency after nested normalization.
-    return BaseRLConfig.model_validate(payload)
+def _load_rl_config(config_toml: Path, output_dir: Path, *, train_gpus: int, infer_gpus: int) -> RLConfig:
+    return _load_settings_from_toml(
+        RLConfig,
+        config_toml,
+        output_dir=output_dir,
+        deployment={"type": "single_node", "num_train_gpus": train_gpus, "num_infer_gpus": infer_gpus},
+    )
 
 
 def _write_sft_outputs(
@@ -198,7 +138,7 @@ def _write_sft_outputs(
 
 
 def _write_rl_outputs(
-    config: BaseRLConfig,
+    config: RLConfig,
     *,
     output_dir: Path,
     project_dir: Path,
@@ -283,26 +223,21 @@ def rl(
     job_name = job_name or f"{config_toml.stem}-rl"
     total_gpus = train_gpus + infer_gpus
 
-    detected_gpus = _detect_local_gpu_count()
-    max_total_gpus = 8 if detected_gpus is None else min(8, detected_gpus)
-    if total_gpus < 2 or total_gpus > max_total_gpus:
-        suffix = "" if detected_gpus is None else f" (detected {detected_gpus} GPUs locally)"
+    if total_gpus < 2 or total_gpus > 8:
         raise typer.BadParameter(
-            (
-                f"Total GPUs must be between 2 and {max_total_gpus}{suffix}, "
-                f"got train_gpus ({train_gpus}) + infer_gpus ({infer_gpus}) = {total_gpus}."
-            ),
+            f"Total GPUs must be between 2 and 8, "
+            f"got train_gpus ({train_gpus}) + infer_gpus ({infer_gpus}) = {total_gpus}.",
             param_hint="--train-gpus/--infer-gpus",
         )
 
     _ensure_output_dirs(output_dir)
-    config = _load_rl_config(config_toml.expanduser().resolve(), output_dir)
-    _normalize_rl_config(config, train_gpus=train_gpus, infer_gpus=infer_gpus)
     try:
-        config = _revalidate_rl_config(config)
+        config = _load_rl_config(
+            config_toml.expanduser().resolve(), output_dir, train_gpus=train_gpus, infer_gpus=infer_gpus
+        )
     except ValidationError as e:
         raise typer.BadParameter(
-            f"Resolved RL config is invalid after medarc_slurm topology normalization:\n{e}",
+            f"RL config validation failed:\n{e}",
             param_hint="CONFIG_TOML/--train-gpus/--infer-gpus",
         ) from e
     script_path = _write_rl_outputs(
