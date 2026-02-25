@@ -45,3 +45,9 @@ override-dependencies = [
     "nvidia-cudnn-cu12>=9.15",
     "transformers>=5.1.0.dev0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
