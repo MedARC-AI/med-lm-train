@@ -390,6 +390,36 @@ def test_rl_cpus_per_gpu_custom(tmp_path: Path) -> None:
     assert "#SBATCH --cpus-per-gpu=12" in script
 
 
+def test_sft_exclusive_omits_cpus_per_gpu(tmp_path: Path) -> None:
+    config_path = _build_sft_inherited_config(tmp_path)
+    output_dir = tmp_path / "sft_out_exclusive"
+
+    result = runner.invoke(
+        app,
+        ["sft", str(config_path), "--output-dir", str(output_dir), "--gpus", "8", "--dry-run"],
+    )
+
+    assert result.exit_code == 0, result.output
+    script = (output_dir / "sft.sh").read_text(encoding="utf-8")
+    assert "#SBATCH --exclusive" in script
+    assert "--cpus-per-gpu" not in script
+
+
+def test_rl_exclusive_omits_cpus_per_gpu(tmp_path: Path) -> None:
+    config_path = _build_rl_inherited_config(tmp_path, cp=4, tp=1)
+    output_dir = tmp_path / "rl_out_exclusive"
+
+    result = runner.invoke(
+        app,
+        ["rl", str(config_path), "--output-dir", str(output_dir), "--train-gpus", "4", "--infer-gpus", "4", "--dry-run"],
+    )
+
+    assert result.exit_code == 0, result.output
+    script = (output_dir / "rl.sh").read_text(encoding="utf-8")
+    assert "#SBATCH --exclusive" in script
+    assert "--cpus-per-gpu" not in script
+
+
 def test_dry_run_does_not_call_sbatch(tmp_path: Path, monkeypatch) -> None:
     config_path = _build_sft_inherited_config(tmp_path)
     output_dir = tmp_path / "sft_out_no_submit"
