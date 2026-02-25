@@ -9,6 +9,7 @@ dependencies = [
     "prime-rl",
     "tomli-w>=1.2.0",
     "typer>=0.24.1",
+    "wandb==0.24.2",
 ]
 
 [project.optional-dependencies]
@@ -29,7 +30,7 @@ module-root = ""
 [tool.uv.sources]
 prime-rl = { path = "prime-rl", editable = true }
 transformers = { git = "https://github.com/huggingface/transformers.git", rev = "609e3d5" }
-vllm = { url = "https://github.com/vllm-project/vllm/releases/download/v0.16.0/vllm-0.16.0-cp38-abi3-manylinux_2_31_x86_64.whl" }
+vllm = { url = "https://vllm-wheels.s3.us-west-2.amazonaws.com/7a06e5b05b170d7da31845866da0a99fc65253a1/vllm-0.16.0rc3-cp38-abi3-manylinux_2_31_x86_64.whl" }
 
 [dependency-groups]
 dev = [

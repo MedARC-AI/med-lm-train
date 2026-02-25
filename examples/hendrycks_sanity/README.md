@@ -20,7 +20,7 @@ Submit a 4-GPU RL job:
 
 ```bash
 medarc_slurm rl examples/hendrycks_sanity/rl.toml \
-    --output-dir runs/hendrycks-sanity \
+    --output-dir output/examples/hendrycks-sanity \
     --train-gpus 1 \
     --infer-gpus 3 \
     --auto-auth
@@ -30,7 +30,7 @@ Or preview without submitting:
 
 ```bash
 medarc_slurm rl examples/hendrycks_sanity/rl.toml \
-    --output-dir runs/hendrycks-sanity \
+    --output-dir output/examples/hendrycks-sanity \
     --train-gpus 1 \
     --infer-gpus 3 \
     --auto-auth \

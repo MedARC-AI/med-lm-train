@@ -26,7 +26,7 @@ Submit an 8-GPU RL job:
 
 ```bash
 medarc_slurm rl examples/alphabet_sort/rl.toml \
-    --output-dir runs/alphabet-sort \
+    --output-dir output/examples/alphabet-sort \
     --train-gpus 2 \
     --infer-gpus 6 \
     --auto-auth
@@ -36,7 +36,7 @@ Or preview without submitting:
 
 ```bash
 medarc_slurm rl examples/alphabet_sort/rl.toml \
-    --output-dir runs/alphabet-sort \
+    --output-dir output/examples/alphabet-sort \
     --train-gpus 2 \
     --infer-gpus 6 \
     --auto-auth \

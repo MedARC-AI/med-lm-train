@@ -13,8 +13,11 @@ name = "alphabet-sort-4b-example"
 type = "filesystem"
 
 [orchestrator]
-batch_size = 512
+# Token-based batching improves packing for variable-length trajectories.
+token_batch_size = 131072
 rollouts_per_example = 8
+# Match previous rollout-mode concurrency (old batch_size=512).
+max_inflight_rollouts = 512
 
 [orchestrator.sampling]
 max_tokens = 768
