@@ -128,6 +128,7 @@ def _write_sft_outputs(
     hf_hub_offline: bool,
     job_name: str,
     gpus: int,
+    cpus_per_gpu: int,
 ) -> Path:
     config_dir = output_dir / "configs"
     _write_toml(config_dir / "trainer.toml", config.model_dump(exclude_none=True, mode="json"))
@@ -140,6 +141,7 @@ def _write_sft_outputs(
         hf_cache_dir=str(hf_cache_dir),
         hf_hub_offline=hf_hub_offline,
         gpus=gpus,
+        cpus_per_gpu=cpus_per_gpu,
     )
     return _write_script(output_dir, "sft.sh", script)
 
@@ -156,6 +158,7 @@ def _write_rl_outputs(
     train_gpus: int,
     infer_gpus: int,
     single_gpu: bool,
+    cpus_per_gpu: int,
 ) -> Path:
     if config.inference is None:
         raise typer.BadParameter("RL requires an [inference] config.", param_hint="CONFIG_TOML")
@@ -177,6 +180,7 @@ def _write_rl_outputs(
         train_gpus=train_gpus,
         infer_gpus=infer_gpus,
         single_gpu=single_gpu,
+        cpus_per_gpu=cpus_per_gpu,
         nccl_enabled=(getattr(config.trainer.weight_broadcast, "type", None) == "nccl"),
     )
     return _write_script(output_dir, "rl.sh", script)
@@ -187,6 +191,7 @@ def sft(
     config_toml: Annotated[Path, Argument( metavar="CONFIG_TOML", help="Path to the PRIME-RL SFT trainer TOML (supports `toml_files` inheritance).")],
     output_dir: Annotated[Path, Option("--output-dir", file_okay=False, dir_okay=True, help="Directory to write generated artifacts (configs/ and sft.sh).")],
     gpus: Annotated[int, Option("--gpus", min=1, max=8, help="Number of GPUs for SFT on this single node (sets SLURM gres and torchrun nproc-per-node).")],
+    cpus_per_gpu: Annotated[int, Option("--cpus-per-gpu", min=1, max=32, help="Number of CPUs to allocate per GPU (sets SLURM --cpus-per-gpu).")] = 8,
     job_name: Annotated[str | None, Option("--job-name", help="SLURM job name. Defaults to '<config stem>-sft'.")] = None,
     dry_run: Annotated[bool, Option("--dry-run", help="Write configs and script, print the `sbatch` command, and do not submit.")] = False,
     auto_auth: Annotated[bool, Option("--auto-auth/--no-auto-auth", help="If HF_TOKEN or WANDB_API_KEY are missing, try to load them from local CLI credentials and inject them into the sbatch submission environment.")] = False,
@@ -210,6 +215,7 @@ def sft(
         hf_hub_offline=hf_hub_offline,
         job_name=job_name,
         gpus=gpus,
+        cpus_per_gpu=cpus_per_gpu,
     )
     submit_env = os.environ.copy()
     for msg in maybe_autoset_auth_env(submit_env, enabled=auto_auth):
@@ -224,6 +230,7 @@ def rl(
     train_gpus: Annotated[int, Option("--train-gpus", min=1, max=4, help="Number of GPUs reserved for trainer processes (1..4). Total GPUs is train + infer.")] = 1,
     infer_gpus: Annotated[int, Option("--infer-gpus", min=1, max=7, help="Number of GPUs reserved for local inference server (1..7). Total GPUs is train + infer.")] = 1,
     single_gpu: Annotated[bool, Option("--single-gpu", help="Run trainer and inference on the same single GPU (shared). Overrides --train-gpus/--infer-gpus to 1/1.")] = False,
+    cpus_per_gpu: Annotated[int, Option("--cpus-per-gpu", min=1, max=32, help="Number of CPUs to allocate per GPU (sets SLURM --cpus-per-gpu).")] = 8,
     job_name: Annotated[str | None, Option("--job-name", help="SLURM job name. Defaults to '<config stem>-rl'.")] = None,
     dry_run: Annotated[bool, Option("--dry-run", help="Write configs and script, print the `sbatch` command, and do not submit.")] = False,
     auto_auth: Annotated[bool, Option("--auto-auth/--no-auto-auth", help="If HF_TOKEN or WANDB_API_KEY are missing, try to load them from local CLI credentials and inject them into the sbatch submission environment.")] = False,
@@ -286,6 +293,7 @@ def rl(
         train_gpus=train_gpus,
         infer_gpus=infer_gpus,
         single_gpu=single_gpu,
+        cpus_per_gpu=cpus_per_gpu,
     )
     submit_env = os.environ.copy()
     for msg in maybe_autoset_auth_env(submit_env, enabled=auto_auth):

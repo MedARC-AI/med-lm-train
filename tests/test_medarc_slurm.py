@@ -334,6 +334,62 @@ def test_rl_dry_run_train_gpu_path_and_filesystem_broadcast(tmp_path: Path) -> N
     assert "uv run" not in script
 
 
+def test_sft_cpus_per_gpu_default(tmp_path: Path) -> None:
+    config_path = _build_sft_inherited_config(tmp_path)
+    output_dir = tmp_path / "sft_out_cpus_default"
+
+    result = runner.invoke(
+        app,
+        ["sft", str(config_path), "--output-dir", str(output_dir), "--gpus", "2", "--dry-run"],
+    )
+
+    assert result.exit_code == 0, result.output
+    script = (output_dir / "sft.sh").read_text(encoding="utf-8")
+    assert "#SBATCH --cpus-per-gpu=8" in script
+
+
+def test_sft_cpus_per_gpu_custom(tmp_path: Path) -> None:
+    config_path = _build_sft_inherited_config(tmp_path)
+    output_dir = tmp_path / "sft_out_cpus_custom"
+
+    result = runner.invoke(
+        app,
+        ["sft", str(config_path), "--output-dir", str(output_dir), "--gpus", "2", "--cpus-per-gpu", "4", "--dry-run"],
+    )
+
+    assert result.exit_code == 0, result.output
+    script = (output_dir / "sft.sh").read_text(encoding="utf-8")
+    assert "#SBATCH --cpus-per-gpu=4" in script
+
+
+def test_rl_cpus_per_gpu_default(tmp_path: Path) -> None:
+    config_path = _build_rl_inherited_config(tmp_path, cp=1, tp=1)
+    output_dir = tmp_path / "rl_out_cpus_default"
+
+    result = runner.invoke(
+        app,
+        ["rl", str(config_path), "--output-dir", str(output_dir), "--dry-run"],
+    )
+
+    assert result.exit_code == 0, result.output
+    script = (output_dir / "rl.sh").read_text(encoding="utf-8")
+    assert "#SBATCH --cpus-per-gpu=8" in script
+
+
+def test_rl_cpus_per_gpu_custom(tmp_path: Path) -> None:
+    config_path = _build_rl_inherited_config(tmp_path, cp=1, tp=1)
+    output_dir = tmp_path / "rl_out_cpus_custom"
+
+    result = runner.invoke(
+        app,
+        ["rl", str(config_path), "--output-dir", str(output_dir), "--cpus-per-gpu", "12", "--dry-run"],
+    )
+
+    assert result.exit_code == 0, result.output
+    script = (output_dir / "rl.sh").read_text(encoding="utf-8")
+    assert "#SBATCH --cpus-per-gpu=12" in script
+
+
 def test_dry_run_does_not_call_sbatch(tmp_path: Path, monkeypatch) -> None:
     config_path = _build_sft_inherited_config(tmp_path)
     output_dir = tmp_path / "sft_out_no_submit"

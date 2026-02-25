@@ -4,8 +4,11 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --gres=gpu:{{ gpus }}
-{% if gpus == 8 %}
+#SBATCH --gres=gpu:{{ total_gpus }}
+{% if total_gpus == 8 %}
 #SBATCH --exclusive
+{% else %}
+#SBATCH --cpus-per-gpu={{ cpus_per_gpu }}
 {% endif %}
 #SBATCH --export=ALL
 #SBATCH --output="{{ output_dir }}/slurm/job_%j.log"
