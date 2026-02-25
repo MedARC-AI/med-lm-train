@@ -8,7 +8,6 @@ from unittest.mock import Mock
 from typer.testing import CliRunner
 
 from medarc_rl.medarc_slurm import app
-from prime_rl.configs.rl import RLConfig
 from prime_rl.configs.sft import SFTConfig
 
 

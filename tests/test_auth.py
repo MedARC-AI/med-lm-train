@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import textwrap
 from pathlib import Path
 from unittest.mock import patch
 
@@ -30,7 +29,9 @@ def test_hf_token_from_huggingface_hub(tmp_path: Path) -> None:
         fake_mod = types.ModuleType("huggingface_hub.utils")
         fake_mod.get_token = lambda: fake_token  # type: ignore[attr-defined]
 
-        with patch.dict("sys.modules", {"huggingface_hub.utils": fake_mod, "huggingface_hub": types.ModuleType("huggingface_hub")}):
+        with patch.dict(
+            "sys.modules", {"huggingface_hub.utils": fake_mod, "huggingface_hub": types.ModuleType("huggingface_hub")}
+        ):
             env: dict[str, str] = {}
             msgs = maybe_autoset_auth_env(env, enabled=True)
 
@@ -44,7 +45,9 @@ def test_hf_token_not_set_when_get_token_returns_none(tmp_path: Path) -> None:
     fake_mod = types.ModuleType("huggingface_hub.utils")
     fake_mod.get_token = lambda: None  # type: ignore[attr-defined]
 
-    with patch.dict("sys.modules", {"huggingface_hub.utils": fake_mod, "huggingface_hub": types.ModuleType("huggingface_hub")}):
+    with patch.dict(
+        "sys.modules", {"huggingface_hub.utils": fake_mod, "huggingface_hub": types.ModuleType("huggingface_hub")}
+    ):
         env: dict[str, str] = {}
         msgs = maybe_autoset_auth_env(env, enabled=True)
 
