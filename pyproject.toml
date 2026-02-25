@@ -1,0 +1,54 @@
+[project]
+name = "medarc-rl"
+version = "0.1.0"
+description = "MedARC environments, utilities, and tools for PrimeRL"
+readme = "README.md"
+requires-python = "~=3.12.0"
+dependencies = [
+    "jinja2>=3.1.0",
+    "prime-rl",
+    "tomli-w>=1.2.0",
+    "typer>=0.24.1",
+    "wandb==0.24.2",
+]
+
+[project.optional-dependencies]
+flash-attn = ["prime-rl[flash-attn]"]
+flash-attn-3 = ["prime-rl[flash-attn,flash-attn-3,flash-attn-cute]"]
+
+[project.scripts]
+medarc_slurm = "medarc_rl.medarc_slurm:app"
+
+[build-system]
+requires = ["uv_build>=0.10.0,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "medarc_rl"
+module-root = ""
+
+[tool.uv.sources]
+prime-rl = { path = "prime-rl", editable = true }
+transformers = { git = "https://github.com/huggingface/transformers.git", rev = "609e3d5" }
+vllm = { url = "https://vllm-wheels.s3.us-west-2.amazonaws.com/7a06e5b05b170d7da31845866da0a99fc65253a1/vllm-0.16.0rc3-cp38-abi3-manylinux_2_31_x86_64.whl" }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.15.2",
+]
+
+[tool.uv]
+preview = true
+package = true
+prerelease = "allow"
+override-dependencies = [
+    "nvidia-cudnn-cu12>=9.15",
+    "transformers>=5.1.0.dev0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120

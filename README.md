@@ -1,26 +1,63 @@
 # med-lm-train
 
-## Installation
+## Setup + Installation
 
-Follow installation of prime-rl:
-https://github.com/PrimeIntellect-ai/prime-rl
+1. Clone the repository
 
-Make sure to activate the uv project environment for prime-rl.
-
-
-Install the required RL environments from the environment hub, for example:
-```
-uv run prime env install maziyar/openmed_medqa
+```bash
+git clone --recurse-submodules --shallow-submodules --depth 50 https://github.com/MedARC-AI/med-lm-train.git
+cd med-lm-train
 ```
 
-Run the tmux layout script:
+2. Install [uv](https://docs.astral.sh/uv/)
 
-```
-bash scripts/tmux.sh
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source $HOME/.local/bin/env
 ```
 
-In the tmux session, run the training, for example:
+3. Install dependencies
 
+```bash
+uv sync
 ```
-uv run rl --trainer @ configs/medqa/3b/train.toml    --orchestrator @ configs/medqa/3b/orch.toml   --inference @ configs/medqa/3b/infer.toml --wandb.project prime-medqa --trainer-gpus 4 --inference-gpus 4
+
+For flash attention support:
+
+```bash
+uv sync --extra flash-attn      # flash-attn v2
+uv sync --extra flash-attn-3    # flash-attn v2 + v3 (use for H100s)
 ```
+
+## medarc_slurm
+
+`medarc_slurm` is a CLI tool that generates and submits single-node SLURM jobs for [PRIME-RL](https://github.com/PrimeIntellect-ai/prime-rl) SFT and RL training. It is based on PRIME-RL's built-in `rl_slurm` and `sft_slurm` commands but adapted for shared-node environments where jobs don't neccesarily have exclusive access to the machine.
+
+```bash
+# SFT: single torchrun job
+medarc_slurm sft config.toml --output-dir runs/my-sft --gpus 2
+
+# RL: splits GPUs between vLLM inference and training
+medarc_slurm rl config.toml --output-dir runs/my-rl --train-gpus 1 --infer-gpus 2
+
+# RL: share a single GPU between inference and training
+medarc_slurm rl config.toml --output-dir runs/my-rl --single-gpu
+```
+
+Generated artifacts are written to `--output-dir`:
+- `sft.sh` or `rl.sh` — the SLURM batch script
+- `configs/` — resolved TOML subconfigs passed to each component
+
+Run `medarc_slurm sft --help` or `medarc_slurm rl --help` for more details on available options.
+
+## Examples
+
+Each example has its own README with setup instructions, SFT/RL commands, and eval steps:
+
+| Example | GPUs | Description |
+|---------|------|-------------|
+| [reverse_text](examples/reverse_text/) | 1 (shared) | Single-GPU SFT + RL on a toy text reversal task |
+| [hendrycks_sanity](examples/hendrycks_sanity/) | 4 | Multi-GPU RL on Hendrycks MATH (sanity subset) |
+| [alphabet_sort](examples/alphabet_sort/) | 8 | Full-node RL on alphabet sorting |
+
+All examples use `medarc_slurm` to generate and submit single-node SLURM jobs. Start with [reverse_text](examples/reverse_text/) to verify your setup.

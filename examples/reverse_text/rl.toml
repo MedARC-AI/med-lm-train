@@ -1,0 +1,41 @@
+max_steps = 20
+seq_len = 2048
+max_async_level = 2
+
+[model]
+name = "PrimeIntellect/Qwen3-0.6B-Reverse-Text-SFT"
+
+[wandb]
+project = "reverse-text"
+name = "reverse-text-rl"
+
+[orchestrator]
+# Token-based batching tends to utilize training steps better when rollout lengths vary.
+token_batch_size = 65536
+rollouts_per_example = 16
+# Old rollout-based setting was batch_size=256 with oversampling_factor=1.5 -> 384
+max_inflight_rollouts = 384
+max_concurrent = 256
+
+[orchestrator.sampling]
+max_tokens = 128
+
+[[orchestrator.env]]
+id = "reverse-text"
+
+[trainer.model]
+attn = "flash_attention_3"
+
+[trainer.model.compile]
+
+[trainer.optim]
+lr = 3e-6
+
+[ckpt]
+
+[inference]
+gpu_memory_utilization = 0.75
+
+[inference.model]
+dtype = "bfloat16"
+max_model_len = 4096

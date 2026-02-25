@@ -1,0 +1,106 @@
+#!/bin/bash
+
+#SBATCH --job-name={{ job_name }}
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --gres=gpu:{{ gpus }}
+{% if gpus == 8 %}
+#SBATCH --exclusive
+{% else %}
+#SBATCH --cpus-per-gpu={{ cpus_per_gpu }}
+{% endif %}
+#SBATCH --export=ALL
+#SBATCH --output="{{ output_dir }}/slurm/job_%j.log"
+#SBATCH --error="{{ output_dir }}/slurm/job_%j.log"
+
+set -euo pipefail
+
+export PROJECT_DIR="{{ project_dir }}"
+export CONFIG_DIR="{{ config_dir }}"
+export OUTPUT_DIR="{{ output_dir }}"
+export HF_CACHE_DIR="{{ hf_cache_dir }}"
+export HF_HUB_OFFLINE={{ 1 if hf_hub_offline else 0 }}
+export HF_HOME="$HF_CACHE_DIR"
+
+mkdir -p "$OUTPUT_DIR/slurm" "$OUTPUT_DIR/torchrun"
+
+if [ -f "$PROJECT_DIR/.env" ]; then
+  set -a
+  # shellcheck disable=SC1091
+  source "$PROJECT_DIR/.env"
+  set +a
+fi
+# shellcheck disable=SC1091
+source "$PROJECT_DIR/.venv/bin/activate"
+
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+export PYTHONUNBUFFERED=1
+export OMP_NUM_THREADS=1
+
+JOB_TMP="${SLURM_TMPDIR:-/tmp/${USER:-user}/${SLURM_JOB_ID:-nojob}}"
+mkdir -p "$JOB_TMP"
+export XDG_CACHE_HOME="$JOB_TMP/xdg_sft"
+export TRITON_CACHE_DIR="$JOB_TMP/triton_sft"
+export TORCHINDUCTOR_CACHE_DIR="$JOB_TMP/torchinductor_sft"
+mkdir -p "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
+
+pick_free_ports() {
+  local py_bin=""
+  if command -v python3 >/dev/null 2>&1; then
+    py_bin="python3"
+  elif command -v python >/dev/null 2>&1; then
+    py_bin="python"
+  else
+    echo "python3 (or python) is required for picking free ports." >&2
+    exit 1
+  fi
+  "$py_bin" - "$1" <<'PY'
+import socket
+import sys
+
+n = int(sys.argv[1])
+sockets = []
+ports = []
+for _ in range(n):
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    sockets.append(s)
+    ports.append(str(s.getsockname()[1]))
+print(" ".join(ports))
+for s in sockets:
+    s.close()
+PY
+}
+
+if [ -z "${RDZV_PORT:-}" ]; then
+  read -r RDZV_PORT < <(pick_free_ports 1)
+fi
+export RDZV_PORT
+
+TRAIN_LOG_LATEST="$OUTPUT_DIR/slurm/latest_train_node_rank_0.log"
+TRAIN_LOG_JOB="$OUTPUT_DIR/slurm/job_${SLURM_JOB_ID}_train_node_rank_0.log"
+
+cleanup() {
+  if [ "${CLEANUP_DONE:-0}" -eq 1 ]; then
+    return
+  fi
+  CLEANUP_DONE=1
+  rm -rf -- "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
+
+torchrun \
+  --nnodes=1 \
+  --nproc-per-node "{{ gpus }}" \
+  --node-rank=0 \
+  --rdzv-endpoint=127.0.0.1:$RDZV_PORT \
+  --rdzv-id=job_$SLURM_JOB_ID \
+  --log-dir "$OUTPUT_DIR/torchrun" \
+  --tee=3 \
+  --redirects=3 \
+  --local-ranks-filter "$(seq -s, 0 $(({{ gpus }} - 1)))" \
+  -m prime_rl.trainer.sft.train \
+  @ "$CONFIG_DIR/trainer.toml" \
+  2>&1 | tee "$TRAIN_LOG_LATEST" "$TRAIN_LOG_JOB"

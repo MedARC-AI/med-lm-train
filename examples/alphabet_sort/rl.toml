@@ -1,0 +1,57 @@
+max_steps = 200
+seq_len = 2048
+max_async_level = 3
+
+[model]
+name = "Qwen/Qwen3-4B-Instruct-2507"
+
+[wandb]
+project = "alphabet-sort"
+name = "alphabet-sort-4b-example"
+
+[weight_broadcast]
+type = "filesystem"
+
+[orchestrator]
+# Token-based batching improves packing for variable-length trajectories.
+token_batch_size = 131072
+rollouts_per_example = 8
+# Match previous rollout-mode concurrency (old batch_size=512).
+max_inflight_rollouts = 512
+
+[orchestrator.sampling]
+max_tokens = 768
+
+[[orchestrator.env]]
+id = "primeintellect/alphabet-sort"
+name = "alphabet-sort"
+args = { min_turns = 3, max_turns = 5, power_per_turn = false }
+
+[trainer.model]
+impl = "auto"
+attn = "flash_attention_3"
+
+[trainer.model.ac]
+freq = 1
+
+[trainer.model.lora]
+rank = 32
+alpha = 64
+
+[trainer.model.compile]
+
+[trainer.optim]
+lr = 1e-5
+
+[ckpt]
+
+[inference]
+gpu_memory_utilization = 0.92
+
+# dp is automatically computed as num_infer_gpus // tp if omitted
+[inference.parallel]
+dp = 6
+
+[inference.model]
+dtype = "bfloat16"
+max_model_len = 4096

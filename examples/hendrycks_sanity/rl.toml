@@ -1,0 +1,56 @@
+max_steps = 5000
+seq_len = 8192
+max_async_level = 3
+
+[model]
+name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
+
+[wandb]
+project = "hendrycks-sanity"
+name = "hendrycks-sanity-1.5b-example"
+
+[weight_broadcast]
+type = "filesystem"
+
+[orchestrator]
+# Math traces vary a lot in length; token batching usually trains more efficiently.
+token_batch_size = 131072
+rollouts_per_example = 8
+# Old rollout-based setting was batch_size=512 with oversampling_factor=2.0 -> 1024
+max_inflight_rollouts = 1024
+
+[[orchestrator.env]]
+id = "math-env"
+args = { dataset_name = "mikasenghaas/Sanity-Test-R1D-1.5B", dataset_subset = "default" }
+name = "hendrycks-math"
+
+[orchestrator.eval]
+interval = 50
+
+[[orchestrator.eval.env]]
+id = "primeintellect/aime2024"
+name = "aime2024"
+rollouts_per_example = 32
+
+[trainer.model]
+name = "deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B"
+attn = "flash_attention_3"
+seq_len = 16384
+
+[trainer.model.compile]
+
+[trainer.optim]
+lr = 3e-6
+
+[ckpt]
+
+[inference]
+gpu_memory_utilization = 0.92
+
+# dp is automatically computed as num_infer_gpus // tp if omitted
+[inference.parallel]
+dp = 3
+
+[inference.model]
+max_model_len = 8192
+dtype = "bfloat16"
