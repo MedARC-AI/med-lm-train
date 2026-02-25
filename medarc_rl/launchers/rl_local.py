@@ -278,7 +278,7 @@ def rl_local(config: RLConfig) -> None:
         monitor_threads.append(monitor_thread)
 
         logger.success("Startup complete. Showing trainer logs...")
-        tail_process = Popen(["tail", "-F", str(log_dir / "trainer.stdout")])
+        tail_process = Popen(["tail", "-F", str(log_dir / "trainer.log")])
         processes.append(tail_process)
 
         while not (stop_events["orchestrator"].is_set() and stop_events["trainer"].is_set()):
