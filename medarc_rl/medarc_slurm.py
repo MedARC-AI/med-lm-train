@@ -12,8 +12,8 @@ from jinja2 import Environment, FileSystemLoader
 from pydantic import ValidationError
 from typer import Argument, Option
 
-from prime_rl.rl_config import RLConfig
-from prime_rl.trainer.sft.config import SFTTrainerConfig
+from prime_rl.configs.rl import RLConfig
+from prime_rl.configs.sft import SFTConfig
 from prime_rl.utils.pydantic_config import extract_toml_paths
 
 from medarc_rl.utils import maybe_autoset_auth_env
@@ -36,7 +36,6 @@ def _default_hf_cache_dir(project_dir: Path, explicit: Path | None) -> Path:
     if env_hf_home:
         return Path(env_hf_home).expanduser().resolve()
     return (project_dir / ".hf_cache").resolve()
-
 
 
 def _ensure_output_dirs(output_dir: Path) -> None:
@@ -107,8 +106,8 @@ def _submit_or_print(
     typer.echo(result.stdout.strip())
 
 
-def _load_sft_config(config_toml: Path, output_dir: Path) -> SFTTrainerConfig:
-    return _load_settings_from_toml(SFTTrainerConfig, config_toml, output_dir=output_dir)
+def _load_sft_config(config_toml: Path, output_dir: Path) -> SFTConfig:
+    return _load_settings_from_toml(SFTConfig, config_toml, output_dir=output_dir)
 
 
 def _load_rl_config(config_toml: Path, output_dir: Path, *, train_gpus: int, infer_gpus: int) -> RLConfig:
@@ -121,7 +120,7 @@ def _load_rl_config(config_toml: Path, output_dir: Path, *, train_gpus: int, inf
 
 
 def _write_sft_outputs(
-    config: SFTTrainerConfig,
+    config: SFTConfig,
     *,
     output_dir: Path,
     project_dir: Path,
@@ -156,6 +155,7 @@ def _write_rl_outputs(
     total_gpus: int,
     train_gpus: int,
     infer_gpus: int,
+    single_gpu: bool,
 ) -> Path:
     if config.inference is None:
         raise typer.BadParameter("RL requires an [inference] config.", param_hint="CONFIG_TOML")
@@ -176,6 +176,7 @@ def _write_rl_outputs(
         total_gpus=total_gpus,
         train_gpus=train_gpus,
         infer_gpus=infer_gpus,
+        single_gpu=single_gpu,
         nccl_enabled=(getattr(config.trainer.weight_broadcast, "type", None) == "nccl"),
     )
     return _write_script(output_dir, "rl.sh", script)
@@ -193,7 +194,7 @@ def sft(
     hf_cache_dir: Annotated[Path, Option("--hf-cache-dir", file_okay=False, dir_okay=True, help="HF cache directory (sets HF_HOME inside the job).")] = "/data/medlm_cache/.hf_cache",
     hf_hub_offline: Annotated[bool, Option("--hf-hub-offline/--no-hf-hub-offline", help="Set HF_HUB_OFFLINE=1 inside the job to prevent runtime downloads.")] = False,
     account: Annotated[str | None, Option("--account", help="SLURM account to pass to sbatch. Defaults to $SBATCH_ACCOUNT or $SLURM_ACCOUNT if set.")] = None,
-) -> None: # fmt: skip
+) -> None:  # fmt: skip
     output_dir = output_dir.expanduser().resolve()
     project_dir = _resolve_path(project_dir, Path.cwd())
     hf_cache_dir = _default_hf_cache_dir(project_dir, hf_cache_dir)
@@ -211,7 +212,7 @@ def sft(
         gpus=gpus,
     )
     submit_env = os.environ.copy()
-    for msg in maybe_autoset_auth_env(submit_env, enabled=auto_auth, project_dir=project_dir):
+    for msg in maybe_autoset_auth_env(submit_env, enabled=auto_auth):
         typer.echo(msg, err=True)
     _submit_or_print(script_path, dry_run=dry_run, account=account, env=submit_env)
 
@@ -222,6 +223,7 @@ def rl(
     output_dir: Annotated[Path, Option("--output-dir", file_okay=False, dir_okay=True, help="Directory to write generated artifacts (configs/ and rl.sh).")],
     train_gpus: Annotated[int, Option("--train-gpus", min=1, max=4, help="Number of GPUs reserved for trainer processes (1..4). Total GPUs is train + infer.")] = 1,
     infer_gpus: Annotated[int, Option("--infer-gpus", min=1, max=7, help="Number of GPUs reserved for local inference server (1..7). Total GPUs is train + infer.")] = 1,
+    single_gpu: Annotated[bool, Option("--single-gpu", help="Run trainer and inference on the same single GPU (shared). Overrides --train-gpus/--infer-gpus to 1/1.")] = False,
     job_name: Annotated[str | None, Option("--job-name", help="SLURM job name. Defaults to '<config stem>-rl'.")] = None,
     dry_run: Annotated[bool, Option("--dry-run", help="Write configs and script, print the `sbatch` command, and do not submit.")] = False,
     auto_auth: Annotated[bool, Option("--auto-auth/--no-auto-auth", help="If HF_TOKEN or WANDB_API_KEY are missing, try to load them from local CLI credentials and inject them into the sbatch submission environment.")] = False,
@@ -234,25 +236,45 @@ def rl(
     project_dir = _resolve_path(project_dir, Path.cwd())
     hf_cache_dir = _default_hf_cache_dir(project_dir, hf_cache_dir)
     job_name = job_name or f"{config_toml.stem}-rl"
-    total_gpus = train_gpus + infer_gpus
+    train_gpus = 1 if single_gpu else train_gpus
+    infer_gpus = 1 if single_gpu else infer_gpus
+    total_gpus = 1 if single_gpu else (train_gpus + infer_gpus)
 
-    if total_gpus < 2 or total_gpus > 8:
+    if (not single_gpu and total_gpus < 2) or total_gpus > 8:
         raise typer.BadParameter(
-            f"Total GPUs must be between 2 and 8, "
-            f"got train_gpus ({train_gpus}) + infer_gpus ({infer_gpus}) = {total_gpus}.",
+            (
+                f"Total GPUs must be between 2 and 8, got train_gpus ({train_gpus}) + "
+                f"infer_gpus ({infer_gpus}) = {train_gpus + infer_gpus}."
+            ),
             param_hint="--train-gpus/--infer-gpus",
         )
 
     _ensure_output_dirs(output_dir)
     try:
         config = _load_rl_config(
-            config_toml.expanduser().resolve(), output_dir, train_gpus=train_gpus, infer_gpus=infer_gpus
+            config_toml.expanduser().resolve(),
+            output_dir,
+            train_gpus=train_gpus,
+            infer_gpus=infer_gpus,
         )
     except ValidationError as e:
         raise typer.BadParameter(
             f"RL config validation failed:\n{e}",
             param_hint="CONFIG_TOML/--train-gpus/--infer-gpus",
         ) from e
+    if single_gpu and getattr(config.trainer.weight_broadcast, "type", None) == "nccl":
+        raise typer.BadParameter(
+            "--single-gpu does not support NCCL weight broadcast. Use filesystem broadcast or 2+ GPUs.",
+            param_hint="CONFIG_TOML/--single-gpu",
+        )
+    if single_gpu and config.inference is not None and config.inference.gpu_memory_utilization >= 0.9:
+        typer.echo(
+            (
+                "Warning: --single-gpu with inference.gpu_memory_utilization >= 0.9 may OOM. "
+                "PrimeRL's default is 0.9; try 0.7-0.8 for shared trainer+vLLM."
+            ),
+            err=True,
+        )
     script_path = _write_rl_outputs(
         config,
         output_dir=output_dir,
@@ -263,9 +285,10 @@ def rl(
         total_gpus=total_gpus,
         train_gpus=train_gpus,
         infer_gpus=infer_gpus,
+        single_gpu=single_gpu,
     )
     submit_env = os.environ.copy()
-    for msg in maybe_autoset_auth_env(submit_env, enabled=auto_auth, project_dir=project_dir):
+    for msg in maybe_autoset_auth_env(submit_env, enabled=auto_auth):
         typer.echo(msg, err=True)
     _submit_or_print(script_path, dry_run=dry_run, account=account, env=submit_env)
 

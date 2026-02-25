@@ -1,18 +1,15 @@
 from __future__ import annotations
 
 import subprocess
-import sys
 import tomllib
 from pathlib import Path
 from unittest.mock import Mock
 
 from typer.testing import CliRunner
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-
 from medarc_rl.medarc_slurm import app
-from prime_rl.rl_config import RLConfig
-from prime_rl.trainer.sft.config import SFTTrainerConfig
+from prime_rl.configs.rl import RLConfig
+from prime_rl.configs.sft import SFTConfig
 
 
 runner = CliRunner()
@@ -27,12 +24,12 @@ def _bash_n(script_path: Path) -> None:
     subprocess.run(["bash", "-n", str(script_path)], check=True)
 
 
-def _load_sft_config(config_path: Path) -> SFTTrainerConfig:
-    SFTTrainerConfig.set_toml_files([str(config_path)])
+def _load_sft_config(config_path: Path) -> SFTConfig:
+    SFTConfig.set_toml_files([str(config_path)])
     try:
-        return SFTTrainerConfig()
+        return SFTConfig()
     finally:
-        SFTTrainerConfig.clear_toml_files()
+        SFTConfig.clear_toml_files()
 
 
 def _read_toml(path: Path) -> dict:
@@ -301,6 +298,7 @@ def test_rl_dry_run_generates_normalized_subconfigs_and_safe_script(tmp_path: Pa
     assert "--server.host 127.0.0.1" in script
     assert '--server.port "$INFER_PORT"' in script
     assert "uv sync" not in script
+    assert "uv run" not in script
 
 
 def test_rl_dry_run_train_gpu_path_and_filesystem_broadcast(tmp_path: Path) -> None:
@@ -334,6 +332,7 @@ def test_rl_dry_run_train_gpu_path_and_filesystem_broadcast(tmp_path: Path) -> N
     assert inference["parallel"]["dp"] == 2
     assert '--weight_broadcast.port "$WEIGHT_BROADCAST_PORT"' not in script
     assert "WEIGHT_BROADCAST_PORT" not in script
+    assert "uv run" not in script
 
 
 def test_dry_run_does_not_call_sbatch(tmp_path: Path, monkeypatch) -> None:

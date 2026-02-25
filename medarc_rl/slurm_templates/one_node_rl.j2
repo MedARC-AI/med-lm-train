@@ -103,7 +103,11 @@ export WEIGHT_BROADCAST_PORT
 {% endif %}
 
 if [ -z "${CUDA_VISIBLE_DEVICES:-}" ]; then
+{% if single_gpu %}
+  echo "CUDA_VISIBLE_DEVICES is not set; cannot determine the shared GPU for inference/training." >&2
+{% else %}
   echo "CUDA_VISIBLE_DEVICES is not set; cannot safely split GPUs for inference/training." >&2
+{% endif %}
   exit 1
 fi
 
@@ -114,8 +118,14 @@ if [ "$gpu_id_count" -ne "$TOTAL_GPUS" ]; then
   exit 1
 fi
 
+{% if single_gpu %}
+SHARED_GPU_ID="${GPU_IDS[0]}"
+INFER_GPU_IDS="$SHARED_GPU_ID"
+TRAIN_GPU_IDS="$SHARED_GPU_ID"
+{% else %}
 INFER_GPU_IDS="$(IFS=,; echo "${GPU_IDS[*]:0:NUM_INFER_GPUS}")"
 TRAIN_GPU_IDS="$(IFS=,; echo "${GPU_IDS[*]:NUM_INFER_GPUS:NUM_TRAIN_GPUS}")"
+{% endif %}
 export INFER_GPU_IDS TRAIN_GPU_IDS
 
 INFER_LATEST_LOG="$OUTPUT_DIR/slurm/latest_infer_node_rank_0.log"
@@ -164,7 +174,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 echo "Starting inference (vLLM) on 127.0.0.1:${INFER_PORT} using ${NUM_INFER_GPUS} GPU(s) (CUDA_VISIBLE_DEVICES=$INFER_GPU_IDS)"
-setsid bash -lc '
+setsid bash -c '
   set -euo pipefail
   if [ -f "$PROJECT_DIR/.env" ]; then
     set -a
@@ -181,7 +191,7 @@ setsid bash -lc '
   export VLLM_WORKER_MULTIPROC_METHOD=spawn
   export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:False"
 
-  CUDA_VISIBLE_DEVICES="$INFER_GPU_IDS" uv run inference \
+  CUDA_VISIBLE_DEVICES="$INFER_GPU_IDS" inference \
     @ "$CONFIG_DIR/inference.toml" \
     --server.host 127.0.0.1 \
     --server.port "$INFER_PORT" \
@@ -190,7 +200,7 @@ setsid bash -lc '
 INFER_PGID=$!
 
 echo "Starting orchestrator (expected to wait for vLLM readiness)"
-setsid bash -lc '
+setsid bash -c '
   set -euo pipefail
   if [ -f "$PROJECT_DIR/.env" ]; then
     set -a
@@ -204,7 +214,7 @@ setsid bash -lc '
   export TORCHINDUCTOR_CACHE_DIR="$ORCH_TORCHINDUCTOR_CACHE_DIR"
   mkdir -p "$XDG_CACHE_HOME" "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
 
-  orch_cmd=(uv run orchestrator @ "$CONFIG_DIR/orchestrator.toml" --client.base-url "http://127.0.0.1:${INFER_PORT}/v1")
+  orch_cmd=(orchestrator @ "$CONFIG_DIR/orchestrator.toml" --client.base-url "http://127.0.0.1:${INFER_PORT}/v1")
 {% if nccl_enabled %}
   orch_cmd+=(--weight_broadcast.host 127.0.0.1 --weight_broadcast.port "$WEIGHT_BROADCAST_PORT")
 {% endif %}
@@ -214,7 +224,7 @@ ORCH_PGID=$!
 
 echo "Starting training using ${NUM_TRAIN_GPUS} GPU(s) (CUDA_VISIBLE_DEVICES=$TRAIN_GPU_IDS)"
 set +e
-CUDA_VISIBLE_DEVICES="$TRAIN_GPU_IDS" bash -lc '
+CUDA_VISIBLE_DEVICES="$TRAIN_GPU_IDS" bash -c '
   set -euo pipefail
   if [ -f "$PROJECT_DIR/.env" ]; then
     set -a
@@ -230,7 +240,7 @@ CUDA_VISIBLE_DEVICES="$TRAIN_GPU_IDS" bash -lc '
 
   export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 
-  train_cmd=(uv run torchrun \
+  train_cmd=(torchrun \
     --nnodes=1 \
     --nproc-per-node "$NUM_TRAIN_GPUS" \
     --node-rank=0 \
