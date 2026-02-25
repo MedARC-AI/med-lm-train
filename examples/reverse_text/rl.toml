@@ -5,8 +5,9 @@ max_async_level = 3
 [model]
 name = "PrimeIntellect/Qwen3-0.6B-Reverse-Text-SFT"
 
-[weight_broadcast]
-type = "filesystem"
+[wandb]
+project = "reverse-text"
+name = "reverse-text-rl"
 
 [orchestrator]
 batch_size = 256
@@ -31,7 +32,8 @@ lr = 3e-6
 [ckpt]
 
 [inference]
-gpu_memory_utilization = 0.92
+gpu_memory_utilization = 0.75
 
 [inference.model]
 dtype = "bfloat16"
+max_model_len = 4096
