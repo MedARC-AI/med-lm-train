@@ -128,7 +128,7 @@ def rl_local(config: RLConfig) -> None:
     log_dir.mkdir(parents=True, exist_ok=True)
     (config.output_dir / "torchrun").mkdir(parents=True, exist_ok=True)
 
-    runtime_config_dir = Path(".pydantic_config") / uuid.uuid4().hex
+    runtime_config_dir = config.output_dir / "configs"
     write_subconfigs(config, runtime_config_dir)
 
     slurm_job_id = os.environ.get("SLURM_JOB_ID", "nojob")
@@ -161,7 +161,7 @@ def rl_local(config: RLConfig) -> None:
             ]
             logger.info(f"Starting inference process on GPU(s) {' '.join(infer_gpu_ids)}")
             logger.debug(f"Inference start command: {' '.join(inference_cmd)}")
-            with (log_dir / "inference.stdout").open("w") as log_file:
+            with (log_dir / "inference.log").open("w") as log_file:
                 inference_process = Popen(
                     inference_cmd,
                     env={
@@ -205,7 +205,7 @@ def rl_local(config: RLConfig) -> None:
 
         logger.info("Starting orchestrator process")
         logger.debug(f"Orchestrator start command: {' '.join(orchestrator_cmd)}")
-        with (log_dir / "orchestrator.stdout").open("w") as log_file:
+        with (log_dir / "orchestrator.log").open("w") as log_file:
             orchestrator_process = Popen(
                 orchestrator_cmd,
                 stdout=log_file,
@@ -213,7 +213,6 @@ def rl_local(config: RLConfig) -> None:
                 env={
                     **base_env,
                     **_build_cache_env(cache_root, "orch"),
-                    "LOGURU_FORCE_COLORS": "1",
                     "WANDB_PROGRAM": "medarc_rl.launchers.rl_local",
                     "WANDB_ARGS": json.dumps(start_command),
                 },
@@ -251,7 +250,7 @@ def rl_local(config: RLConfig) -> None:
 
         logger.info(f"Starting trainer process on GPU(s) {' '.join(trainer_gpu_ids)}")
         logger.debug(f"Trainer start command: {' '.join(trainer_cmd)}")
-        with (log_dir / "trainer.stdout").open("w") as log_file:
+        with (log_dir / "trainer.log").open("w") as log_file:
             trainer_process = Popen(
                 trainer_cmd,
                 env={
@@ -260,7 +259,6 @@ def rl_local(config: RLConfig) -> None:
                     "CUDA_VISIBLE_DEVICES": ",".join(trainer_gpu_ids),
                     "PYTHONUNBUFFERED": "1",
                     "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
-                    "LOGURU_FORCE_COLORS": "1",
                     "WANDB_PROGRAM": "medarc_rl.launchers.rl_local",
                     "WANDB_ARGS": json.dumps(start_command),
                 },
@@ -316,7 +314,6 @@ def rl_local(config: RLConfig) -> None:
         raise SystemExit(1)
     finally:
         shutil.rmtree(cache_root, ignore_errors=True)
-        shutil.rmtree(runtime_config_dir, ignore_errors=True)
 
 
 def main() -> None:
