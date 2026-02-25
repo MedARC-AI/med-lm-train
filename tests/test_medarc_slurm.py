@@ -269,35 +269,32 @@ def test_rl_dry_run_generates_normalized_subconfigs_and_safe_script(tmp_path: Pa
     assert f"sbatch {output_dir / 'rl.sh'}" in result.output
 
     script_path = output_dir / "rl.sh"
-    trainer_toml = output_dir / "configs" / "trainer.toml"
-    orch_toml = output_dir / "configs" / "orchestrator.toml"
-    infer_toml = output_dir / "configs" / "inference.toml"
+    rl_toml = output_dir / "configs" / "rl.toml"
 
-    for path in [script_path, trainer_toml, orch_toml, infer_toml]:
+    for path in [script_path, rl_toml]:
         assert path.exists(), str(path)
 
     _bash_n(script_path)
 
-    trainer = _read_toml(trainer_toml)
-    orchestrator = _read_toml(orch_toml)
-    inference = _read_toml(infer_toml)
+    rl_cfg = _read_toml(rl_toml)
 
-    assert orchestrator["num_train_workers"] == 2
-    assert inference["parallel"]["tp"] == 1
-    assert inference["parallel"]["dp"] == 2
-    assert trainer["weight_broadcast"]["type"] == "nccl"
-    assert inference["weight_broadcast"]["type"] == "nccl"
+    assert rl_cfg["deployment"]["num_train_gpus"] == 4
+    assert rl_cfg["deployment"]["num_infer_gpus"] == 2
+    assert rl_cfg["orchestrator"]["num_train_workers"] == 2
+    assert rl_cfg["inference"]["parallel"]["tp"] == 1
+    assert rl_cfg["inference"]["parallel"]["dp"] == 2
+    assert rl_cfg["trainer"]["weight_broadcast"]["type"] == "nccl"
+    assert rl_cfg["inference"]["weight_broadcast"]["type"] == "nccl"
 
     script = script_path.read_text(encoding="utf-8")
-    assert "--standalone" not in script
-    assert ":8000" not in script
-    assert "pick_free_ports" in script
-    assert "--rdzv-endpoint=127.0.0.1:$RDZV_PORT" in script
-    assert "--rdzv-id=job_$SLURM_JOB_ID" in script
-    assert "--server.host 127.0.0.1" in script
-    assert '--server.port "$INFER_PORT"' in script
+    assert 'export MEDARC_SINGLE_GPU=0' in script
+    assert 'python -m medarc_rl.launchers.rl_local @ "$CONFIG_DIR/rl.toml"' in script
+    assert "pick_free_ports" not in script
+    assert "--rdzv-endpoint" not in script
+    assert "-m prime_rl.trainer.rl.train" not in script
+    assert "orchestrator @" not in script
+    assert "inference @" not in script
     assert "uv sync" not in script
-    assert "uv run" not in script
 
 
 def test_rl_dry_run_train_gpu_path_and_filesystem_broadcast(tmp_path: Path) -> None:
@@ -321,17 +318,44 @@ def test_rl_dry_run_train_gpu_path_and_filesystem_broadcast(tmp_path: Path) -> N
 
     assert result.exit_code == 0, result.output
 
-    trainer = _read_toml(output_dir / "configs" / "trainer.toml")
-    inference = _read_toml(output_dir / "configs" / "inference.toml")
+    rl_cfg = _read_toml(output_dir / "configs" / "rl.toml")
     script = (output_dir / "rl.sh").read_text(encoding="utf-8")
 
-    assert trainer["weight_broadcast"]["type"] == "filesystem"
-    assert "inference_world_size" not in trainer["weight_broadcast"]
-    assert inference["parallel"]["tp"] == 1
-    assert inference["parallel"]["dp"] == 2
-    assert '--weight_broadcast.port "$WEIGHT_BROADCAST_PORT"' not in script
+    assert rl_cfg["trainer"]["weight_broadcast"]["type"] == "filesystem"
+    assert "inference_world_size" not in rl_cfg["trainer"]["weight_broadcast"]
+    assert rl_cfg["inference"]["parallel"]["tp"] == 1
+    assert rl_cfg["inference"]["parallel"]["dp"] == 2
     assert "WEIGHT_BROADCAST_PORT" not in script
-    assert "uv run" not in script
+    assert "pick_free_ports" not in script
+    assert 'python -m medarc_rl.launchers.rl_local @ "$CONFIG_DIR/rl.toml"' in script
+
+
+def test_rl_single_gpu_dry_run(tmp_path: Path) -> None:
+    config_path = _build_rl_inherited_config(tmp_path, weight_broadcast_type="filesystem", cp=1, tp=1)
+    output_dir = tmp_path / "rl_out_single_gpu"
+
+    result = runner.invoke(
+        app,
+        [
+            "rl",
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--single-gpu",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+
+    script = (output_dir / "rl.sh").read_text(encoding="utf-8")
+    assert "#SBATCH --gres=gpu:1" in script
+    assert "export MEDARC_SINGLE_GPU=1" in script
+    assert 'python -m medarc_rl.launchers.rl_local @ "$CONFIG_DIR/rl.toml"' in script
+
+    rl_cfg = _read_toml(output_dir / "configs" / "rl.toml")
+    assert rl_cfg["deployment"]["num_train_gpus"] == 1
+    assert rl_cfg["deployment"]["num_infer_gpus"] == 1
 
 
 def test_sft_cpus_per_gpu_default(tmp_path: Path) -> None:

@@ -91,7 +91,7 @@ trap cleanup EXIT INT TERM
 
 export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 
-uv run torchrun \
+torchrun \
   --nnodes=1 \
   --nproc-per-node "{{ gpus }}" \
   --node-rank=0 \

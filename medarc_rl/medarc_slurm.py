@@ -155,8 +155,6 @@ def _write_rl_outputs(
     hf_hub_offline: bool,
     job_name: str,
     total_gpus: int,
-    train_gpus: int,
-    infer_gpus: int,
     single_gpu: bool,
     cpus_per_gpu: int,
 ) -> Path:
@@ -164,9 +162,7 @@ def _write_rl_outputs(
         raise typer.BadParameter("RL requires an [inference] config.", param_hint="CONFIG_TOML")
 
     config_dir = output_dir / "configs"
-    _write_toml(config_dir / "trainer.toml", config.trainer.model_dump(exclude_none=True, mode="json"))
-    _write_toml(config_dir / "orchestrator.toml", config.orchestrator.model_dump(exclude_none=True, mode="json"))
-    _write_toml(config_dir / "inference.toml", config.inference.model_dump(exclude_none=True, mode="json"))
+    _write_toml(config_dir / "rl.toml", config.model_dump(exclude_none=True, mode="json"))
 
     script = _render_template(
         "one_node_rl.j2",
@@ -177,11 +173,8 @@ def _write_rl_outputs(
         hf_cache_dir=str(hf_cache_dir),
         hf_hub_offline=hf_hub_offline,
         total_gpus=total_gpus,
-        train_gpus=train_gpus,
-        infer_gpus=infer_gpus,
         single_gpu=single_gpu,
         cpus_per_gpu=cpus_per_gpu,
-        nccl_enabled=(getattr(config.trainer.weight_broadcast, "type", None) == "nccl"),
     )
     return _write_script(output_dir, "rl.sh", script)
 
@@ -290,8 +283,6 @@ def rl(
         hf_hub_offline=hf_hub_offline,
         job_name=job_name,
         total_gpus=total_gpus,
-        train_gpus=train_gpus,
-        infer_gpus=infer_gpus,
         single_gpu=single_gpu,
         cpus_per_gpu=cpus_per_gpu,
     )
