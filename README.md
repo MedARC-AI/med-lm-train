@@ -16,7 +16,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 source $HOME/.local/bin/env
 ```
 
-3. Install dependencies from the lock file
+3. Install dependencies
 
 ```bash
 uv sync
@@ -26,63 +26,38 @@ For flash attention support:
 
 ```bash
 uv sync --extra flash-attn      # flash-attn v2
-uv sync --extra flash-attn-3    # flash-attn v2 + v3
+uv sync --extra flash-attn-3    # flash-attn v2 + v3 (use for H100s)
 ```
 
-## Example: Reverse Text (single node, H100)
+## medarc_slurm
 
-This walks through running the reverse text example on H100s using `medarc_slurm` to generate and submit single-node SLURM jobs. The configs in [examples/reverse_text/](examples/reverse_text/) are tuned for H100 memory (larger micro-batches than the upstream PRIME-RL defaults).
-
-### SFT (1 GPU)
-
-Generate the SLURM script and resolved config, then submit:
+`medarc_slurm` is a CLI tool that generates and submits single-node SLURM jobs for [PRIME-RL](https://github.com/PrimeIntellect-ai/prime-rl) SFT and RL training. It is based on PRIME-RL's built-in `rl_slurm` and `sft_slurm` commands but adapted for shared-node environments where jobs don't neccesarily have exclusive access to the machine.
 
 ```bash
-medarc_slurm sft examples/reverse_text/sft.toml \
-    --output-dir runs/reverse-sft \
-    --gpus 1
+# SFT: single torchrun job
+medarc_slurm sft config.toml --output-dir runs/my-sft --gpus 2
+
+# RL: splits GPUs between vLLM inference and training
+medarc_slurm rl config.toml --output-dir runs/my-rl --train-gpus 1 --infer-gpus 2
+
+# RL: share a single GPU between inference and training
+medarc_slurm rl config.toml --output-dir runs/my-rl --single-gpu
 ```
 
-To inspect the generated script without submitting:
+Generated artifacts are written to `--output-dir`:
+- `sft.sh` or `rl.sh` — the SLURM batch script
+- `configs/` — resolved TOML subconfigs passed to each component
 
-```bash
-medarc_slurm sft examples/reverse_text/sft.toml \
-    --output-dir runs/reverse-sft \
-    --gpus 1 \
-    --dry-run
-```
+Run `medarc_slurm sft --help` or `medarc_slurm rl --help` for more details on available options.
 
-This writes `runs/reverse-sft/sft.sh` and `runs/reverse-sft/configs/trainer.toml`, then prints the `sbatch` command.
+## Examples
 
-### RL (2 GPUs)
+Each example has its own README with setup instructions, SFT/RL commands, and eval steps:
 
-RL requires at least 2 GPUs — one for inference and one for training. Using the SFT checkpoint as the starting model:
+| Example | GPUs | Description |
+|---------|------|-------------|
+| [reverse_text](examples/reverse_text/) | 1 (shared) | Single-GPU SFT + RL on a toy text reversal task |
+| [hendrycks_sanity](examples/hendrycks_sanity/) | 4 | Multi-GPU RL on Hendrycks MATH (sanity subset) |
+| [alphabet_sort](examples/alphabet_sort/) | 8 | Full-node RL on alphabet sorting |
 
-```bash
-medarc_slurm rl examples/reverse_text/rl.toml \
-    --output-dir runs/reverse-rl \
-    --train-gpus 1 \
-    --infer-gpus 1
-```
-
-This generates `runs/reverse-rl/rl.sh` along with three resolved subconfigs under `runs/reverse-rl/configs/` (trainer, orchestrator, inference) and submits the job.
-
-To preview without submitting:
-
-```bash
-medarc_slurm rl examples/reverse_text/rl.toml \
-    --output-dir runs/reverse-rl \
-    --train-gpus 1 \
-    --infer-gpus 1 \
-    --dry-run
-```
-
-### Common options
-
-| Flag | Description |
-|------|-------------|
-| `--dry-run` | Write artifacts and print the `sbatch` command without submitting |
-| `--project-dir PATH` | Project root for `.env` and `.venv` (defaults to cwd) |
-| `--hf-cache-dir PATH` | HuggingFace cache directory (sets `HF_HOME` in the job) |
-| `--hf-hub-offline` | Set `HF_HUB_OFFLINE=1` to prevent runtime downloads |
-| `--job-name NAME` | Custom SLURM job name |
+All examples use `medarc_slurm` to generate and submit single-node SLURM jobs. Start with [reverse_text](examples/reverse_text/) to verify your setup.
