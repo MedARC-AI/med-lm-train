@@ -1,1 +1,0 @@
-{"env": "medcasereasoning", "model": "Qwen/Qwen2.5-3B", "num_examples": 5, "rollouts_per_example": 3, "sampling_args": {"max_tokens": null}, "date": "2025-09-01", "time": "01:40:32", "avg_reward": 0.0, "avg_medical_diagnosis_reward_func": 0.0}
