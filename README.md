@@ -9,6 +9,12 @@ git clone --recurse-submodules --shallow-submodules --depth 50 https://github.co
 cd med-lm-train
 ```
 
+Or if you already have the repo cloned without submodules:
+
+```bash
+git submodule update --init --recursive --depth 50
+```
+
 2. Install [uv](https://docs.astral.sh/uv/)
 
 ```bash
