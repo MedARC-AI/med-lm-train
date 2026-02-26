@@ -330,6 +330,71 @@ def test_rl_dry_run_train_gpu_path_and_filesystem_broadcast(tmp_path: Path) -> N
     assert 'python -m medarc_rl.launchers.rl_local @ "$CONFIG_DIR/rl.toml"' in script
 
 
+def test_sft_accepts_primerl_style_overrides_and_wrapper_output_dir_wins(tmp_path: Path) -> None:
+    config_path = _build_sft_inherited_config(tmp_path)
+    output_dir = tmp_path / "sft_out_overrides"
+    ignored_output_dir = tmp_path / "ignored_by_wrapper"
+
+    result = runner.invoke(
+        app,
+        [
+            "sft",
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--gpus",
+            "1",
+            "--dry-run",
+            "--",
+            "--max-steps",
+            "7",
+            "--model.seq-len",
+            "1024",
+            "--output-dir",
+            str(ignored_output_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    cfg = _read_toml(output_dir / "configs" / "trainer.toml")
+    assert cfg["max_steps"] == 7
+    assert cfg["model"]["seq_len"] == 1024
+    assert cfg["output_dir"] == str(output_dir.resolve())
+
+
+def test_rl_accepts_primerl_style_overrides_and_wrapper_gpu_split_wins(tmp_path: Path) -> None:
+    config_path = _build_rl_inherited_config(tmp_path, cp=1, tp=1)
+    output_dir = tmp_path / "rl_out_overrides"
+
+    result = runner.invoke(
+        app,
+        [
+            "rl",
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--train-gpus",
+            "2",
+            "--infer-gpus",
+            "1",
+            "--dry-run",
+            "--",
+            "--inference.gpu-memory-utilization",
+            "0.33",
+            "--deployment.num-train-gpus",
+            "4",
+            "--deployment.num-infer-gpus",
+            "4",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    rl_cfg = _read_toml(output_dir / "configs" / "rl.toml")
+    assert rl_cfg["inference"]["gpu_memory_utilization"] == 0.33
+    assert rl_cfg["deployment"]["num_train_gpus"] == 2
+    assert rl_cfg["deployment"]["num_infer_gpus"] == 1
+
+
 def test_rl_single_gpu_dry_run(tmp_path: Path) -> None:
     config_path = _build_rl_inherited_config(tmp_path, weight_broadcast_type="filesystem", cp=1, tp=1)
     output_dir = tmp_path / "rl_out_single_gpu"

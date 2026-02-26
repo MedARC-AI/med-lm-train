@@ -4,9 +4,8 @@ import os
 import shlex
 import subprocess
 from pathlib import Path
-from typing import Annotated, Any, TypeVar
+from typing import Annotated, Any
 
-import tomli_w
 import typer
 from jinja2 import Environment, FileSystemLoader
 from pydantic import ValidationError
@@ -14,14 +13,25 @@ from typer import Argument, Option
 
 from prime_rl.configs.rl import RLConfig
 from prime_rl.configs.sft import SFTConfig
-from prime_rl.utils.pydantic_config import extract_toml_paths
 
-from medarc_rl.utils import maybe_autoset_auth_env
+from medarc_rl.utils import (
+    TYPER_PASSTHROUGH_CONTEXT,
+    _load_settings_from_toml,
+    _write_toml,
+    extra_config_args,
+    maybe_autoset_auth_env,
+)
 
 
-app = typer.Typer(add_completion=False, help="Generate single-node SLURM jobs for PRIME-RL SFT/RL.")
+app = typer.Typer(
+    add_completion=False,
+    help=(
+        "Generate single-node SLURM jobs for PRIME-RL SFT/RL. "
+        "Pass PRIME-RL config overrides as extra flags  e.g. "
+        "`--wandb.project my-proj --wandb.name my-run`."
+    ),
+)
 
-T = TypeVar("T")
 TEMPLATE_DIR = Path(__file__).parent / "slurm_templates"
 
 
@@ -41,26 +51,6 @@ def _default_hf_cache_dir(project_dir: Path, explicit: Path | None) -> Path:
 def _ensure_output_dirs(output_dir: Path) -> None:
     (output_dir / "configs").mkdir(parents=True, exist_ok=True)
     (output_dir / "slurm").mkdir(parents=True, exist_ok=True)
-
-
-def _load_settings_from_toml(config_cls: type[T], config_path: Path, **overrides: Any) -> T:
-    if not config_path.exists():
-        raise typer.BadParameter(f"Config file does not exist: {config_path}", param_hint="CONFIG_TOML")
-    toml_paths, _ = extract_toml_paths(["@", str(config_path)])
-    if not toml_paths:
-        raise typer.BadParameter(f"Failed to resolve TOML paths from {config_path}", param_hint="CONFIG_TOML")
-
-    config_cls.set_toml_files([str(path) for path in toml_paths])
-    try:
-        return config_cls(**overrides)
-    finally:
-        config_cls.clear_toml_files()
-
-
-def _write_toml(path: Path, data: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("wb") as f:
-        tomli_w.dump(data, f)
 
 
 def _render_template(template_name: str, **context: Any) -> str:
@@ -106,14 +96,22 @@ def _submit_or_print(
     typer.echo(result.stdout.strip())
 
 
-def _load_sft_config(config_toml: Path, output_dir: Path) -> SFTConfig:
-    return _load_settings_from_toml(SFTConfig, config_toml, output_dir=output_dir)
+def _load_sft_config(config_toml: Path, output_dir: Path, *, extra_cli_args: list[str] | None = None) -> SFTConfig:
+    return _load_settings_from_toml(SFTConfig, config_toml, output_dir=output_dir, extra_cli_args=extra_cli_args)
 
 
-def _load_rl_config(config_toml: Path, output_dir: Path, *, train_gpus: int, infer_gpus: int) -> RLConfig:
+def _load_rl_config(
+    config_toml: Path,
+    output_dir: Path,
+    *,
+    train_gpus: int,
+    infer_gpus: int,
+    extra_cli_args: list[str] | None = None,
+) -> RLConfig:
     return _load_settings_from_toml(
         RLConfig,
         config_toml,
+        extra_cli_args=extra_cli_args,
         output_dir=output_dir,
         deployment={"type": "single_node", "num_train_gpus": train_gpus, "num_infer_gpus": infer_gpus},
     )
@@ -179,8 +177,14 @@ def _write_rl_outputs(
     return _write_script(output_dir, "rl.sh", script)
 
 
-@app.command()
+@app.command(
+    context_settings=TYPER_PASSTHROUGH_CONTEXT,
+    help=(
+        "Generate/submit an SFT SLURM job. PRIME-RL config overrides can be passed as extra flags, e.g. `--wandb.project my-proj --wandb.name my-run`."
+    ),
+)
 def sft(
+    ctx: typer.Context,
     config_toml: Annotated[Path, Argument( metavar="CONFIG_TOML", help="Path to the PRIME-RL SFT trainer TOML (supports `toml_files` inheritance).")],
     output_dir: Annotated[Path, Option("--output-dir", file_okay=False, dir_okay=True, help="Directory to write generated artifacts (configs/ and sft.sh).")],
     gpus: Annotated[int, Option("--gpus", min=1, max=8, help="Number of GPUs for SFT on this single node (sets SLURM gres and torchrun nproc-per-node).")],
@@ -199,7 +203,7 @@ def sft(
     job_name = job_name or f"{config_toml.stem}-sft"
 
     _ensure_output_dirs(output_dir)
-    config = _load_sft_config(config_toml.expanduser().resolve(), output_dir)
+    config = _load_sft_config(config_toml.expanduser().resolve(), output_dir, extra_cli_args=extra_config_args(ctx))
     script_path = _write_sft_outputs(
         config,
         output_dir=output_dir,
@@ -216,8 +220,16 @@ def sft(
     _submit_or_print(script_path, dry_run=dry_run, account=account, env=submit_env)
 
 
-@app.command()
+@app.command(
+    context_settings=TYPER_PASSTHROUGH_CONTEXT,
+    help=(
+        "Generate/submit an RL SLURM job. "
+        "Use medarc GPU flags for placement/splitting. "
+        "PRIME-RL config overrides can be passed as extra flags, e.g. `--wandb.project my-proj --wandb.name my-run`."
+    ),
+)
 def rl(
+    ctx: typer.Context,
     config_toml: Annotated[Path, Argument( metavar="CONFIG_TOML", help="Path to the PRIME-RL RL TOML (supports `toml_files` inheritance).")],
     output_dir: Annotated[Path, Option("--output-dir", file_okay=False, dir_okay=True, help="Directory to write generated artifacts (configs/ and rl.sh).")],
     train_gpus: Annotated[int, Option("--train-gpus", min=1, max=4, help="Number of GPUs reserved for trainer processes (1..4). Total GPUs is train + infer.")] = 1,
@@ -256,6 +268,7 @@ def rl(
             output_dir,
             train_gpus=train_gpus,
             infer_gpus=infer_gpus,
+            extra_cli_args=extra_config_args(ctx),
         )
     except ValidationError as e:
         raise typer.BadParameter(
