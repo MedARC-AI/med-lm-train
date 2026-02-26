@@ -4,7 +4,9 @@
 
 We demonstrate how to train `Qwen3-0.6B` to reverse a small chunk of text. We use a SFT warmup to learn the skill of text reversal on longer documents and then a quick RL run to reverse smaller chunks of text in the [`reverse-text`](https://app.primeintellect.ai/dashboard/environments/primeintellect/reverse-text) environment.
 
-> The configs in this example are tuned for H100 GPUs. If you're on consumer GPUs, you may need to lower `micro_batch_size` in `sft.toml` and/or `seq_len` in the RL config you use (`rl_multi.toml`, `rl_single.toml`, or `rl_slurm.toml`). See **Batching Options** at the end for token-based alternatives and microbatching notes.
+> Info: The configs in this example are tuned for H100 GPUs. If you're on consumer GPUs, you may need to lower `micro_batch_size` in `sft.toml` and/or `seq_len` in the RL config you use (`rl_multi.toml`, `rl_single.toml`, or `rl_slurm.toml`). See **Batching Options** at the end for token-based alternatives and microbatching notes.
+
+> Note: `medarc_train` and `medarc_slurm` accept arbitrary PRIME-RL config overrides as CLI flags. In these examples, we use that passthrough to set `wandb.project` and `wandb.name`.
 
 ## Setup
 
@@ -36,7 +38,8 @@ To train on a single GPU with `medarc_train`:
 
 ```bash
 medarc_train sft examples/reverse_text/sft.toml \
-  --output-dir outputs/examples/reverse-sft
+  --output-dir outputs/examples/reverse-sft \
+  --wandb.project reverse-text --wandb.name reverse-text-sft
 ```
 
 Or directly with PrimeRL's `sft` entrypoint:
@@ -51,7 +54,8 @@ To train on multiple GPUs with `medarc_train`:
 ```bash
 medarc_train sft examples/reverse_text/sft.toml \
   --output-dir outputs/examples/reverse-sft \
-  --gpus 2
+  --gpus 2 \
+  --wandb.project reverse-text --wandb.name reverse-text-sft
 ```
 
 Or with PrimeRL's `sft` entrypoint:
@@ -78,7 +82,8 @@ Submit a 1-GPU SFT job via `medarc_slurm`:
 medarc_slurm sft examples/reverse_text/sft.toml \
     --output-dir outputs/examples/reverse-sft \
     --gpus 1 \
-    --auto-auth
+    --auto-auth \
+    --wandb.project reverse-text --wandb.name reverse-text-sft
 ```
 
 Or preview without submitting:
@@ -88,7 +93,8 @@ medarc_slurm sft examples/reverse_text/sft.toml \
     --output-dir outputs/examples/reverse-sft \
     --gpus 1 \
     --auto-auth \
-    --dry-run
+    --dry-run \
+    --wandb.project reverse-text --wandb.name reverse-text-sft
 ```
 
 ## RL
@@ -102,7 +108,8 @@ Run RL locally on a single shared GPU (assumes a 24GB GPU like a 3090 or 4090):
 ```bash
 medarc_train rl examples/reverse_text/rl_single.toml \
   --output-dir outputs/examples/reverse-rl \
-  --single-gpu
+  --single-gpu \
+  --wandb.project reverse-text --wandb.name reverse-text-rl
 ```
 
 This writes a checkpoint to `outputs/examples/reverse-rl/weights/step_20`.
@@ -115,7 +122,8 @@ With `medarc_train`:
 
 ```bash
 medarc_train rl examples/reverse_text/rl_multi.toml \
-  --output-dir outputs/examples/reverse-rl
+  --output-dir outputs/examples/reverse-rl \
+  --wandb.project reverse-text --wandb.name reverse-text-rl
 ```
 
 Or directly with PrimeRL's `rl` entrypoint (assumes both GPUs are visible):
@@ -132,7 +140,8 @@ This example shares a single GPU between the trainer and vLLM inference server. 
 medarc_slurm rl examples/reverse_text/rl_slurm.toml \
     --output-dir outputs/examples/reverse-rl \
     --single-gpu \
-    --auto-auth
+    --auto-auth \
+    --wandb.project reverse-text --wandb.name reverse-text-rl
 ```
 
 Or preview without submitting:
@@ -142,7 +151,8 @@ medarc_slurm rl examples/reverse_text/rl_slurm.toml \
     --output-dir outputs/examples/reverse-rl \
     --single-gpu \
     --auto-auth \
-    --dry-run
+    --dry-run \
+    --wandb.project reverse-text --wandb.name reverse-text-rl
 ```
 
 This writes a checkpoint to `outputs/examples/reverse-rl/weights/step_20`.

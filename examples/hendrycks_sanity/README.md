@@ -6,6 +6,8 @@ This runs the Hendrycks Sanity Check experiment from [Defeating the Training-Inf
 
 > This example uses 4 GPUs on a single node: 1 for training and 3 for inference (data parallel — the 1.5B model fits on a single GPU, so each inference GPU runs its own vLLM replica for higher throughput).
 
+Note: `medarc_train` and `medarc_slurm` accept arbitrary PRIME-RL config overrides as CLI flags. In these examples, we use that passthrough to set `wandb.project` and `wandb.name`.
+
 ## Setup
 
 The `math-env` environment is included in the lock file. Verify it's installed:
@@ -23,7 +25,8 @@ medarc_slurm rl examples/hendrycks_sanity/rl.toml \
     --output-dir output/examples/hendrycks-sanity \
     --train-gpus 1 \
     --infer-gpus 3 \
-    --auto-auth
+    --auto-auth \
+    --wandb.project hendrycks-sanity --wandb.name hendrycks-sanity-1.5b-example
 ```
 
 Or preview without submitting:
@@ -34,7 +37,8 @@ medarc_slurm rl examples/hendrycks_sanity/rl.toml \
     --train-gpus 1 \
     --infer-gpus 3 \
     --auto-auth \
-    --dry-run
+    --dry-run \
+    --wandb.project hendrycks-sanity --wandb.name hendrycks-sanity-1.5b-example
 ```
 
 The eval runs AIME 2024 every 50 steps to track progress.
