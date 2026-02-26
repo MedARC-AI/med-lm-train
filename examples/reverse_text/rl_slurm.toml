@@ -1,5 +1,4 @@
 max_steps = 20
-seq_len = 2048
 max_async_level = 2
 
 [model]
@@ -10,12 +9,8 @@ project = "reverse-text"
 name = "reverse-text-rl"
 
 [orchestrator]
-# Token-based batching tends to utilize training steps better when rollout lengths vary.
-token_batch_size = 65536
+batch_size = 128
 rollouts_per_example = 16
-# Old rollout-based setting was batch_size=256 with oversampling_factor=1.5 -> 384
-max_inflight_rollouts = 384
-max_concurrent = 256
 
 [orchestrator.sampling]
 max_tokens = 128
@@ -25,7 +20,11 @@ id = "reverse-text"
 
 [trainer.model]
 attn = "flash_attention_3"
+# this is the microbatch setting, also can be set at the top of the config
+seq_len = 2048
 
+# Set this empty to enable torch.compile.
+# On a short job like this probably slows down more then it helps, but reduces memory usage and can speed up training on longer jobs.
 [trainer.model.compile]
 
 [trainer.optim]
