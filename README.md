@@ -54,6 +54,8 @@ Generated artifacts are written to `--output-dir`:
 - `sft.sh` or `rl.sh` — the SLURM batch script
 - `configs/` — resolved TOML subconfigs passed to each component
 
+You can pass PRIME-RL config overrides directly as extra flags (for example `--wandb.project my-proj --wandb.name my-run`). You may also insert `--` before passthrough overrides for readability, but it is optional.
+
 Run `medarc_slurm sft --help` or `medarc_slurm rl --help` for more details on available options.
 
 ## Examples

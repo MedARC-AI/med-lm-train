@@ -4,7 +4,7 @@ This file provides guidance to Codex, Claude Code, and other coding agents when 
 
 ## Overview
 
-med-lm-train provides a CLI tool (`medarc_slurm`) for generating and submitting single-node SLURM jobs for SFT and RL training of medical language models, built on PRIME-RL.
+med-lm-train provides CLI tools (`medarc_slurm`, `medarc_train`) for single-node SLURM submission and local SFT/RL training workflows built on PRIME-RL.
 
 `prime-rl/` is a pinned external git submodule — do not modify.
 
@@ -21,6 +21,12 @@ ruff check medarc_rl tests                      # Lint
 ruff format medarc_rl tests                     # Format
 ```
 
+Testing scope:
+- `pyproject.toml` sets `pytest` `testpaths = ["tests"]`, so default collection is scoped correctly.
+- Do not run `prime-rl/tests/` by default.
+- Avoid `pytest .` (or other explicit repo-root paths), which can widen collection and include `prime-rl/tests/`.
+- Only run this repo's tests under `tests/` unless the user explicitly asks to run PRIME-RL tests.
+
 ## Architecture
 
 ### CLI (`medarc_rl/medarc_slurm.py`)
@@ -31,6 +37,10 @@ Typer-based CLI with two commands (`sft` and `rl`). Each command:
 3. Writes the script + resolved configs to the output directory
 4. Submits via `sbatch` (or prints in `--dry-run` mode)
 
+### Local Training CLI (`medarc_rl/medarc_train.py`)
+
+Typer-based local runner for PRIME-RL SFT/RL. It resolves configs the same way as `medarc_slurm`, writes resolved configs, and launches local training (`sft` / `torchrun` / `rl_local`).
+
 ### RL Launcher (`medarc_rl/launchers/rl_local.py`)
 
 Modified version of PRIME-RL's `rl_local()` for shared-node environments. Handles GPU isolation via `CUDA_VISIBLE_DEVICES`, per-process cache separation, and coordinated multi-process lifecycle with thread-based monitoring.
@@ -38,6 +48,10 @@ Modified version of PRIME-RL's `rl_local()` for shared-node environments. Handle
 ### Config System
 
 TOML-based configs with inheritance via PRIME-RL's `toml_files` mechanism. Example configs in `examples/`. Resolved configs are written to the output directory for reproducibility.
+
+Both `medarc_slurm` and `medarc_train` support PRIME-RL-style nested CLI overrides (for example `-- --wandb.name run1`). Wrapper-owned fields (especially GPU split / deployment and `output_dir`) take precedence over passthrough overrides.
+
+Shared config/TOML helper functions live in `medarc_rl/utils.py`; do not import underscore helpers from `medarc_rl.medarc_slurm` into other modules.
 
 ## Constraints
 

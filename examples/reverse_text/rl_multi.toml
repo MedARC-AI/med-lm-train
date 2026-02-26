@@ -3,10 +3,6 @@ max_steps = 20
 [model]
 name = "PrimeIntellect/Qwen3-0.6B-Reverse-Text-SFT"
 
-[wandb]
-project = "reverse-text"
-name = "reverse-text-rl"
-
 [orchestrator]
 batch_size = 128
 rollouts_per_example = 16

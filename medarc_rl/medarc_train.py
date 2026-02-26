@@ -9,18 +9,30 @@ import typer
 from pydantic import ValidationError
 from typer import Argument, Option
 
-from medarc_rl.medarc_slurm import _load_settings_from_toml, _write_toml
+from medarc_rl.utils import TYPER_PASSTHROUGH_CONTEXT, _load_settings_from_toml, _write_toml, extra_config_args
 
 
-app = typer.Typer(add_completion=False, help="Run PRIME-RL SFT/RL training locally (no SLURM).")
+app = typer.Typer(
+    add_completion=False,
+    help=(
+        "Run PRIME-RL SFT/RL training on local GPU(s). "
+        "Pass PRIME-RL config overrides as extra flags, e.g. `--wandb.project my-proj --wandb.name my-run`."
+    ),
+)
 
 
 def _gpu_ids(n: int) -> str:
     return ",".join(str(i) for i in range(n))
 
 
-@app.command()
+@app.command(
+    context_settings=TYPER_PASSTHROUGH_CONTEXT,
+    help=(
+        "Run PRIME-RL SFT locally. PRIME-RL config overrides can be passed as extra flags, e.g. `--wandb.project my-proj --wandb.name my-run`."
+    ),
+)
 def sft(
+    ctx: typer.Context,
     config_toml: Annotated[Path, Argument(metavar="CONFIG_TOML", help="Path to the PRIME-RL SFT trainer TOML.")],
     output_dir: Annotated[Path, Option("--output-dir", file_okay=False, dir_okay=True, help="Directory to write resolved configs and checkpoints.")],
     gpus: Annotated[int, Option("--gpus", min=1, max=8, help="Number of GPUs for SFT.")] = 1,
@@ -28,7 +40,12 @@ def sft(
     from prime_rl.configs.sft import SFTConfig
 
     output_dir = output_dir.expanduser().resolve()
-    config = _load_settings_from_toml(SFTConfig, config_toml.expanduser().resolve(), output_dir=output_dir)
+    config = _load_settings_from_toml(
+        SFTConfig,
+        config_toml.expanduser().resolve(),
+        output_dir=output_dir,
+        extra_cli_args=extra_config_args(ctx),
+    )
 
     config_dir = output_dir / "configs"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -55,8 +72,16 @@ def sft(
     raise typer.Exit(code=result.returncode)
 
 
-@app.command()
+@app.command(
+    context_settings=TYPER_PASSTHROUGH_CONTEXT,
+    help=(
+        "Run PRIME-RL RL locally. "
+        "Use medarc GPU flags for placement/splitting. "
+        "PRIME-RL config overrides can be passed as extra flags, e.g. `--wandb.project my-proj --wandb.name my-run`."
+    ),
+)
 def rl(
+    ctx: typer.Context,
     config_toml: Annotated[Path, Argument(metavar="CONFIG_TOML", help="Path to the PRIME-RL RL TOML.")],
     output_dir: Annotated[Path, Option("--output-dir", file_okay=False, dir_okay=True, help="Directory to write resolved configs and checkpoints.")],
     train_gpus: Annotated[int, Option("--train-gpus", min=1, max=4, help="Number of GPUs for training.")] = 1,
@@ -87,6 +112,7 @@ def rl(
         config = _load_settings_from_toml(
             RLConfig,
             config_toml.expanduser().resolve(),
+            extra_cli_args=extra_config_args(ctx),
             output_dir=output_dir,
             deployment={"type": "single_node", "num_train_gpus": train_gpus, "num_infer_gpus": infer_gpus},
         )

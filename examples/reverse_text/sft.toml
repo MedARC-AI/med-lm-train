@@ -1,9 +1,5 @@
 max_steps = 100
 
-[wandb]
-project = "reverse-text"
-name = "reverse-text-sft"
-
 [model]
 name = "PrimeIntellect/Qwen3-0.6B"
 attn = "flash_attention_3"

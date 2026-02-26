@@ -176,3 +176,67 @@ def test_sft_resolved_config_contains_output_dir(mock_run: MagicMock, tmp_path: 
 
     resolved = _read_toml(output_dir / "configs" / "trainer.toml")
     assert resolved["output_dir"] == str(output_dir)
+
+
+@patch("medarc_rl.medarc_train.subprocess.run")
+def test_sft_accepts_primerl_style_overrides_and_wrapper_output_dir_wins(mock_run: MagicMock, tmp_path: Path) -> None:
+    mock_run.return_value = MagicMock(returncode=0)
+    config_path = _build_sft_config(tmp_path)
+    output_dir = tmp_path / "sft_out_overrides"
+    ignored_output_dir = tmp_path / "ignored_by_wrapper"
+
+    result = runner.invoke(
+        app,
+        [
+            "sft",
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--",
+            "--max-steps",
+            "9",
+            "--output-dir",
+            str(ignored_output_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    resolved = _read_toml(output_dir / "configs" / "trainer.toml")
+    assert resolved["max_steps"] == 9
+    assert resolved["output_dir"] == str(output_dir.resolve())
+
+
+@patch("medarc_rl.launchers.rl_local.rl_local")
+def test_rl_accepts_primerl_style_overrides_and_wrapper_gpu_split_wins(mock_rl_local: MagicMock, tmp_path: Path) -> None:
+    config_path = _build_rl_config(tmp_path)
+    output_dir = tmp_path / "rl_out_override_split"
+
+    result = runner.invoke(
+        app,
+        [
+            "rl",
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--train-gpus",
+            "2",
+            "--infer-gpus",
+            "2",
+            "--",
+            "--inference.gpu-memory-utilization",
+            "0.33",
+            "--deployment.num-train-gpus",
+            "4",
+            "--deployment.num-infer-gpus",
+            "4",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    mock_rl_local.assert_called_once()
+
+    config = mock_rl_local.call_args[0][0]
+    assert config.inference is not None
+    assert config.inference.gpu_memory_utilization == 0.33
+    assert config.deployment.num_train_gpus == 2
+    assert config.deployment.num_infer_gpus == 2
