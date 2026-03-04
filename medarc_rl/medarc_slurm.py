@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
+from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -35,6 +36,22 @@ app = typer.Typer(
 TEMPLATE_DIR = Path(__file__).parent / "slurm_templates"
 
 
+class QoS(StrEnum):
+    LOW = "low"
+    NORMAL = "normal"
+    TOP = "top"
+
+
+class MailSetting(StrEnum):
+    ALL = "all"
+    BEGIN_END = "begin_end"
+
+
+class Account(StrEnum):
+    TRAINING = "training"
+    SOPHONT = "sophont"
+
+
 def _resolve_path(path: Path | None, fallback: Path) -> Path:
     return (path or fallback).expanduser().resolve()
 
@@ -51,6 +68,26 @@ def _default_hf_cache_dir(project_dir: Path, explicit: Path | None) -> Path:
 def _ensure_output_dirs(output_dir: Path) -> None:
     (output_dir / "configs").mkdir(parents=True, exist_ok=True)
     (output_dir / "slurm").mkdir(parents=True, exist_ok=True)
+
+
+def _enable_sft_resume(config: SFTConfig, *, enabled: bool) -> None:
+    if not enabled:
+        return
+    if config.ckpt is None:
+        from prime_rl.configs.trainer import CheckpointConfig as TrainerCheckpointConfig
+
+        config.ckpt = TrainerCheckpointConfig()
+    config.ckpt.resume_step = -1
+
+
+def _enable_rl_resume(config: RLConfig, *, enabled: bool) -> None:
+    if not enabled:
+        return
+    if config.ckpt is None:
+        from prime_rl.configs.rl import SharedCheckpointConfig
+
+        config.ckpt = SharedCheckpointConfig()
+    config.ckpt.resume_step = -1
 
 
 def _render_template(template_name: str, **context: Any) -> str:
@@ -73,11 +110,13 @@ def _submit_or_print(
     script_path: Path,
     *,
     dry_run: bool,
-    account: str | None = None,
+    account: str | Account | None = None,
     env: dict[str, str] | None = None,
 ) -> None:
     if account is None:
-        account = os.environ.get("SBATCH_ACCOUNT") or os.environ.get("SLURM_ACCOUNT")
+        account = Account.TRAINING
+    if isinstance(account, Account):
+        account = account.value
 
     sbatch_cmd = ["sbatch"]
     if account:
@@ -127,6 +166,10 @@ def _write_sft_outputs(
     job_name: str,
     gpus: int,
     cpus_per_gpu: int,
+    priority: QoS | None,
+    mail_type: str | None,
+    mail_user: str | None,
+    slurm_resume: bool,
 ) -> Path:
     config_dir = output_dir / "configs"
     _write_toml(config_dir / "trainer.toml", config.model_dump(exclude_none=True, mode="json"))
@@ -140,6 +183,10 @@ def _write_sft_outputs(
         hf_hub_offline=hf_hub_offline,
         gpus=gpus,
         cpus_per_gpu=cpus_per_gpu,
+        qos=priority.value if priority is not None else None,
+        mail_type=mail_type,
+        mail_user=mail_user,
+        slurm_resume=slurm_resume,
     )
     return _write_script(output_dir, "sft.sh", script)
 
@@ -155,6 +202,10 @@ def _write_rl_outputs(
     total_gpus: int,
     single_gpu: bool,
     cpus_per_gpu: int,
+    priority: QoS | None,
+    mail_type: str | None,
+    mail_user: str | None,
+    slurm_resume: bool,
 ) -> Path:
     if config.inference is None:
         raise typer.BadParameter("RL requires an [inference] config.", param_hint="CONFIG_TOML")
@@ -173,6 +224,10 @@ def _write_rl_outputs(
         total_gpus=total_gpus,
         single_gpu=single_gpu,
         cpus_per_gpu=cpus_per_gpu,
+        qos=priority.value if priority is not None else None,
+        mail_type=mail_type,
+        mail_user=mail_user,
+        slurm_resume=slurm_resume,
     )
     return _write_script(output_dir, "rl.sh", script)
 
@@ -188,14 +243,18 @@ def sft(
     config_toml: Annotated[Path, Argument( metavar="CONFIG_TOML", help="Path to the PRIME-RL SFT trainer TOML (supports `toml_files` inheritance).")],
     output_dir: Annotated[Path, Option("--output-dir", file_okay=False, dir_okay=True, help="Directory to write generated artifacts (configs/ and sft.sh).")],
     gpus: Annotated[int, Option("--gpus", min=1, max=8, help="Number of GPUs for SFT on this single node (sets SLURM gres and torchrun nproc-per-node).")],
-    cpus_per_gpu: Annotated[int, Option("--cpus-per-gpu", min=1, max=32, help="Number of CPUs to allocate per GPU (sets SLURM --cpus-per-gpu).")] = 8,
+    cpus_per_gpu: Annotated[int, Option("--cpus-per-gpu", min=1, max=32, help="Number of CPUs to allocate per GPU (sets SLURM --cpus-per-gpu).")] = 16,
     job_name: Annotated[str | None, Option("--job-name", help="SLURM job name. Defaults to '<config stem>-sft'.")] = None,
     dry_run: Annotated[bool, Option("--dry-run", help="Write configs and script, print the `sbatch` command, and do not submit.")] = False,
     auto_auth: Annotated[bool, Option("--auto-auth/--no-auto-auth", help="Try to load HF_TOKEN from local CLI credentials and inject it into the sbatch submission environment.")] = False,
     project_dir: Annotated[Path | None, Option("--project-dir", file_okay=False, dir_okay=True, help="Project root used by the script to source .env and activate .venv (defaults to current working directory).")] = None,
     hf_cache_dir: Annotated[Path, Option("--hf-cache-dir", file_okay=False, dir_okay=True, help="HF cache directory (sets HF_HOME inside the job).")] = "/data/medlm_cache/.hf_cache",
     hf_hub_offline: Annotated[bool, Option("--hf-hub-offline/--no-hf-hub-offline", help="Set HF_HUB_OFFLINE=1 inside the job to prevent runtime downloads.")] = False,
-    account: Annotated[str | None, Option("--account", help="SLURM account to pass to sbatch. Defaults to $SBATCH_ACCOUNT or $SLURM_ACCOUNT if set.")] = None,
+    priority: Annotated[QoS | None, Option("--priority", help="SLURM job priority (sets the SLURM QoS value). Only project leads can set high.")] = None,
+    mail: Annotated[MailSetting | None, Option("--mail", help="SLURM email setting: 'all' or 'begin_end'.")] = None,
+    mail_user: Annotated[str | None, Option("--mail-user", help="Email address for SLURM notifications.")] = None,
+    slurm_resume: Annotated[bool, Option("--slurm-resume/--no-slurm-resume", help="Enable SLURM requeue and resume from the latest checkpoint (sets ckpt.resume_step=-1).")] = False,
+    account: Annotated[Account, Option("--account", help="SLURM account to pass to sbatch.")] = Account.TRAINING,
 ) -> None:  # fmt: skip
     output_dir = output_dir.expanduser().resolve()
     project_dir = _resolve_path(project_dir, Path.cwd())
@@ -203,7 +262,13 @@ def sft(
     job_name = job_name or f"{config_toml.stem}-sft"
 
     _ensure_output_dirs(output_dir)
+    if mail is None and mail_user is not None:
+        mail = MailSetting.ALL
+    if mail is not None and not mail_user:
+        raise typer.BadParameter("--mail-user is required when --mail is set.", param_hint="--mail-user")
+    mail_type = "begin,end" if mail == MailSetting.BEGIN_END else (mail.value if mail is not None else None)
     config = _load_sft_config(config_toml.expanduser().resolve(), output_dir, extra_cli_args=extra_config_args(ctx))
+    _enable_sft_resume(config, enabled=slurm_resume)
     script_path = _write_sft_outputs(
         config,
         output_dir=output_dir,
@@ -213,6 +278,10 @@ def sft(
         job_name=job_name,
         gpus=gpus,
         cpus_per_gpu=cpus_per_gpu,
+        priority=priority,
+        mail_type=mail_type,
+        mail_user=mail_user,
+        slurm_resume=slurm_resume,
     )
     submit_env = os.environ.copy()
     for msg in maybe_autoset_auth_env(submit_env, enabled=auto_auth):
@@ -235,14 +304,18 @@ def rl(
     train_gpus: Annotated[int, Option("--train-gpus", min=1, max=4, help="Number of GPUs reserved for trainer processes (1..4). Total GPUs is train + infer.")] = 1,
     infer_gpus: Annotated[int, Option("--infer-gpus", min=1, max=7, help="Number of GPUs reserved for local inference server (1..7). Total GPUs is train + infer.")] = 1,
     single_gpu: Annotated[bool, Option("--single-gpu", help="Run trainer and inference on the same single GPU (shared). Overrides --train-gpus/--infer-gpus to 1/1.")] = False,
-    cpus_per_gpu: Annotated[int, Option("--cpus-per-gpu", min=1, max=32, help="Number of CPUs to allocate per GPU (sets SLURM --cpus-per-gpu).")] = 8,
+    cpus_per_gpu: Annotated[int, Option("--cpus-per-gpu", min=1, max=32, help="Number of CPUs to allocate per GPU (sets SLURM --cpus-per-gpu).")] = 16,
     job_name: Annotated[str | None, Option("--job-name", help="SLURM job name. Defaults to '<config stem>-rl'.")] = None,
     dry_run: Annotated[bool, Option("--dry-run", help="Write configs and script, print the `sbatch` command, and do not submit.")] = False,
     auto_auth: Annotated[bool, Option("--auto-auth/--no-auto-auth", help="Try to load HF_TOKEN from local CLI credentials and inject it into the sbatch submission environment.")] = False,
     project_dir: Annotated[Path | None, Option("--project-dir", file_okay=False, dir_okay=True, help="Project root used by the script to source .env and activate .venv (defaults to current working directory).")] = None,
     hf_cache_dir: Annotated[Path, Option("--hf-cache-dir", file_okay=False, dir_okay=True, help="HF cache directory (sets HF_HOME inside the job).")] = "/data/medlm_cache/.hf_cache",
     hf_hub_offline: Annotated[bool, Option("--hf-hub-offline/--no-hf-hub-offline", help="Set HF_HUB_OFFLINE=1 inside the job to prevent runtime downloads.")] = False,
-    account: Annotated[str | None, Option("--account", help="SLURM account to pass to sbatch. Defaults to $SBATCH_ACCOUNT or $SLURM_ACCOUNT if set.")] = None,
+    priority: Annotated[QoS | None, Option("--priority", help="SLURM job priority (sets the SLURM QoS value). Only project leads can set high.")] = None,
+    mail: Annotated[MailSetting | None, Option("--mail", help="SLURM email setting: 'all' or 'begin_end'.")] = None,
+    mail_user: Annotated[str | None, Option("--mail-user", help="Email address for SLURM notifications.")] = None,
+    slurm_resume: Annotated[bool, Option("--slurm-resume/--no-slurm-resume", help="Enable SLURM requeue and resume from the latest checkpoint (sets ckpt.resume_step=-1).")] = False,
+    account: Annotated[Account, Option("--account", help="SLURM account to pass to sbatch.")] = Account.TRAINING,
 ) -> None:  # fmt: skip
     output_dir = output_dir.expanduser().resolve()
     project_dir = _resolve_path(project_dir, Path.cwd())
@@ -262,6 +335,11 @@ def rl(
         )
 
     _ensure_output_dirs(output_dir)
+    if mail is None and mail_user is not None:
+        mail = MailSetting.ALL
+    if mail is not None and not mail_user:
+        raise typer.BadParameter("--mail-user is required when --mail is set.", param_hint="--mail-user")
+    mail_type = "begin,end" if mail == MailSetting.BEGIN_END else (mail.value if mail is not None else None)
     try:
         config = _load_rl_config(
             config_toml.expanduser().resolve(),
@@ -275,6 +353,7 @@ def rl(
             f"RL config validation failed:\n{e}",
             param_hint="CONFIG_TOML/--train-gpus/--infer-gpus",
         ) from e
+    _enable_rl_resume(config, enabled=slurm_resume)
     if single_gpu and getattr(config.trainer.weight_broadcast, "type", None) == "nccl":
         raise typer.BadParameter(
             "--single-gpu does not support NCCL weight broadcast. Use filesystem broadcast or 2+ GPUs.",
@@ -298,6 +377,10 @@ def rl(
         total_gpus=total_gpus,
         single_gpu=single_gpu,
         cpus_per_gpu=cpus_per_gpu,
+        priority=priority,
+        mail_type=mail_type,
+        mail_user=mail_user,
+        slurm_resume=slurm_resume,
     )
     submit_env = os.environ.copy()
     for msg in maybe_autoset_auth_env(submit_env, enabled=auto_auth):

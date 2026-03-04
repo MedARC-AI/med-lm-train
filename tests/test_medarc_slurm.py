@@ -108,7 +108,7 @@ def test_sft_dry_run_generates_script_and_resolved_toml(tmp_path: Path) -> None:
     )
 
     assert result.exit_code == 0, result.output
-    assert f"sbatch {output_dir / 'sft.sh'}" in result.output
+    assert f"sbatch --account training {output_dir / 'sft.sh'}" in result.output
 
     script_path = output_dir / "sft.sh"
     trainer_toml = output_dir / "configs" / "trainer.toml"
@@ -156,6 +156,41 @@ def test_sft_boundary_and_hf_env_flags_are_rendered(tmp_path: Path) -> None:
     assert "export HF_HUB_OFFLINE=1" in script
 
 
+def test_sft_renders_priority_mail_and_requeue_flags(tmp_path: Path) -> None:
+    config_path = _build_sft_inherited_config(tmp_path)
+    output_dir = tmp_path / "sft_out_slurm_flags"
+
+    result = runner.invoke(
+        app,
+        [
+            "sft",
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--gpus",
+            "1",
+            "--priority",
+            "low",
+            "--mail",
+            "all",
+            "--mail-user",
+            "email@domain.com",
+            "--slurm-resume",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    script = (output_dir / "sft.sh").read_text(encoding="utf-8")
+    config = _read_toml(output_dir / "configs" / "trainer.toml")
+
+    assert "#SBATCH --qos=low" in script
+    assert "#SBATCH --mail-type=all" in script
+    assert "#SBATCH --mail-user=email@domain.com" in script
+    assert "#SBATCH --requeue" in script
+    assert config["ckpt"]["resume_step"] == -1
+
+
 def test_rl_defaults_split_to_one_and_one(tmp_path: Path) -> None:
     config_path = _build_rl_inherited_config(tmp_path, cp=1, tp=1)
     output_dir = tmp_path / "rl_out_missing_split"
@@ -173,7 +208,7 @@ def test_rl_defaults_split_to_one_and_one(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     script = (output_dir / "rl.sh").read_text(encoding="utf-8")
-    assert "#SBATCH --gres=gpu:2" in script
+    assert "#SBATCH --gpus-per-task=2" in script
 
 
 def test_rl_rejects_total_gpu_count_above_eight(tmp_path: Path) -> None:
@@ -266,7 +301,7 @@ def test_rl_dry_run_generates_normalized_subconfigs_and_safe_script(tmp_path: Pa
     )
 
     assert result.exit_code == 0, result.output
-    assert f"sbatch {output_dir / 'rl.sh'}" in result.output
+    assert f"sbatch --account training {output_dir / 'rl.sh'}" in result.output
 
     script_path = output_dir / "rl.sh"
     rl_toml = output_dir / "configs" / "rl.toml"
@@ -414,13 +449,46 @@ def test_rl_single_gpu_dry_run(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
 
     script = (output_dir / "rl.sh").read_text(encoding="utf-8")
-    assert "#SBATCH --gres=gpu:1" in script
+    assert "#SBATCH --gpus-per-task=1" in script
     assert "export MEDARC_SINGLE_GPU=1" in script
     assert 'python -m medarc_rl.launchers.rl_local @ "$CONFIG_DIR/rl.toml"' in script
 
     rl_cfg = _read_toml(output_dir / "configs" / "rl.toml")
     assert rl_cfg["deployment"]["num_train_gpus"] == 1
     assert rl_cfg["deployment"]["num_infer_gpus"] == 1
+
+
+def test_rl_renders_priority_mail_and_requeue_flags(tmp_path: Path) -> None:
+    config_path = _build_rl_inherited_config(tmp_path, cp=1, tp=1)
+    output_dir = tmp_path / "rl_out_slurm_flags"
+
+    result = runner.invoke(
+        app,
+        [
+            "rl",
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--priority",
+            "normal",
+            "--mail",
+            "begin_end",
+            "--mail-user",
+            "email@domain.com",
+            "--slurm-resume",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    script = (output_dir / "rl.sh").read_text(encoding="utf-8")
+    config = _read_toml(output_dir / "configs" / "rl.toml")
+
+    assert "#SBATCH --qos=normal" in script
+    assert "#SBATCH --mail-type=begin,end" in script
+    assert "#SBATCH --mail-user=email@domain.com" in script
+    assert "#SBATCH --requeue" in script
+    assert config["ckpt"]["resume_step"] == -1
 
 
 def test_sft_cpus_per_gpu_default(tmp_path: Path) -> None:
@@ -434,7 +502,7 @@ def test_sft_cpus_per_gpu_default(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     script = (output_dir / "sft.sh").read_text(encoding="utf-8")
-    assert "#SBATCH --cpus-per-gpu=8" in script
+    assert "#SBATCH --cpus-per-gpu=16" in script
 
 
 def test_sft_cpus_per_gpu_custom(tmp_path: Path) -> None:
@@ -462,7 +530,7 @@ def test_rl_cpus_per_gpu_default(tmp_path: Path) -> None:
 
     assert result.exit_code == 0, result.output
     script = (output_dir / "rl.sh").read_text(encoding="utf-8")
-    assert "#SBATCH --cpus-per-gpu=8" in script
+    assert "#SBATCH --cpus-per-gpu=16" in script
 
 
 def test_rl_cpus_per_gpu_custom(tmp_path: Path) -> None:

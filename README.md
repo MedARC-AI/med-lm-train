@@ -48,6 +48,15 @@ medarc_slurm rl config.toml --output-dir runs/my-rl --train-gpus 1 --infer-gpus 
 
 # RL: share a single GPU between inference and training
 medarc_slurm rl config.toml --output-dir runs/my-rl --single-gpu
+
+# SFT: low-priority queue + email notifications + resume from latest checkpoint
+medarc_slurm sft config.toml \
+  --output-dir runs/my-sft \
+  --gpus 2 \
+  --priority low \
+  --mail all \
+  --mail-user email@domain.com \
+  --slurm-resume
 ```
 
 Generated artifacts are written to `--output-dir`:
@@ -55,6 +64,9 @@ Generated artifacts are written to `--output-dir`:
 - `configs/` — resolved TOML subconfigs passed to each component
 
 You can pass PRIME-RL config overrides directly as extra flags (for example `--wandb.project my-proj --wandb.name my-run`). You may also insert `--` before passthrough overrides for readability, but it is optional.
+
+`medarc_slurm` now defaults `--account` to `training`. You can override it with `--account <name>`.
+Email mode is `--mail all` or `--mail begin_end` (with `--mail-user`).
 
 Run `medarc_slurm sft --help` or `medarc_slurm rl --help` for more details on available options.
 

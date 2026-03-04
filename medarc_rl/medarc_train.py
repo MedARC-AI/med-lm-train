@@ -25,6 +25,26 @@ def _gpu_ids(n: int) -> str:
     return ",".join(str(i) for i in range(n))
 
 
+def _enable_sft_resume(config, *, enabled: bool) -> None:
+    if not enabled:
+        return
+    if config.ckpt is None:
+        from prime_rl.configs.trainer import CheckpointConfig as TrainerCheckpointConfig
+
+        config.ckpt = TrainerCheckpointConfig()
+    config.ckpt.resume_step = -1
+
+
+def _enable_rl_resume(config, *, enabled: bool) -> None:
+    if not enabled:
+        return
+    if config.ckpt is None:
+        from prime_rl.configs.rl import SharedCheckpointConfig
+
+        config.ckpt = SharedCheckpointConfig()
+    config.ckpt.resume_step = -1
+
+
 @app.command(
     context_settings=TYPER_PASSTHROUGH_CONTEXT,
     help=(
@@ -36,6 +56,7 @@ def sft(
     config_toml: Annotated[Path, Argument(metavar="CONFIG_TOML", help="Path to the PRIME-RL SFT trainer TOML.")],
     output_dir: Annotated[Path, Option("--output-dir", file_okay=False, dir_okay=True, help="Directory to write resolved configs and checkpoints.")],
     gpus: Annotated[int, Option("--gpus", min=1, max=8, help="Number of GPUs for SFT.")] = 1,
+    resume: Annotated[bool, Option("--resume/--no-resume", help="Resume from the latest checkpoint (sets ckpt.resume_step=-1).")] = False,
 ) -> None:  # fmt: skip
     from prime_rl.configs.sft import SFTConfig
 
@@ -46,6 +67,7 @@ def sft(
         output_dir=output_dir,
         extra_cli_args=extra_config_args(ctx),
     )
+    _enable_sft_resume(config, enabled=resume)
 
     config_dir = output_dir / "configs"
     config_dir.mkdir(parents=True, exist_ok=True)
@@ -87,6 +109,7 @@ def rl(
     train_gpus: Annotated[int, Option("--train-gpus", min=1, max=4, help="Number of GPUs for training.")] = 1,
     infer_gpus: Annotated[int, Option("--infer-gpus", min=1, max=7, help="Number of GPUs for inference.")] = 1,
     single_gpu: Annotated[bool, Option("--single-gpu", help="Share a single GPU between trainer and inference.")] = False,
+    resume: Annotated[bool, Option("--resume/--no-resume", help="Resume from the latest checkpoint (sets ckpt.resume_step=-1).")] = False,
 ) -> None:  # fmt: skip
     from prime_rl.configs.rl import RLConfig
 
@@ -121,6 +144,7 @@ def rl(
             f"RL config validation failed:\n{e}",
             param_hint="CONFIG_TOML/--train-gpus/--infer-gpus",
         ) from e
+    _enable_rl_resume(config, enabled=resume)
 
     if single_gpu and getattr(config.trainer.weight_broadcast, "type", None) == "nccl":
         raise typer.BadParameter(
