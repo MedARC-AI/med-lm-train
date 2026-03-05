@@ -34,6 +34,11 @@ app = typer.Typer(
 )
 
 TEMPLATE_DIR = Path(__file__).parent / "slurm_templates"
+PANEL_INPUTS = "Inputs"
+PANEL_COMPUTE = "Compute"
+PANEL_SUBMISSION = "Submission"
+PANEL_NOTIFY_RESUME = "Notifications & Resume"
+PANEL_RUNTIME = "Runtime Environment"
 
 
 class QoS(StrEnum):
@@ -250,23 +255,23 @@ def _write_rl_outputs(
 )
 def sft(
     ctx: typer.Context,
-    config_toml: Annotated[Path, Argument( metavar="CONFIG_TOML", help="Path to the PRIME-RL SFT trainer TOML (supports `toml_files` inheritance).")],
-    output_dir: Annotated[Path, Option("--output-dir", file_okay=False, dir_okay=True, help="Directory to write generated artifacts (configs/ and sft.sh).")],
-    gpus: Annotated[int, Option("--gpus", min=1, max=8, help="Number of GPUs for SFT on this single node (sets SLURM gres and torchrun nproc-per-node).")],
-    cpus_per_gpu: Annotated[int, Option("--cpus-per-gpu", min=1, max=32, help="Number of CPUs to allocate per GPU (sets SLURM --cpus-per-gpu).")] = 16,
-    job_name: Annotated[str | None, Option("--job-name", help="SLURM job name. Defaults to '<config stem>-sft'.")] = None,
-    dry_run: Annotated[bool, Option("--dry-run", help="Write configs and script, print the `sbatch` command, and do not submit.")] = False,
-    auto_auth: Annotated[bool, Option("--auto-auth/--no-auto-auth", help="Try to load HF_TOKEN from local CLI credentials and inject it into the sbatch submission environment.")] = False,
-    project_dir: Annotated[Path | None, Option("--project-dir", file_okay=False, dir_okay=True, help="Project root used by the script to source .env and activate .venv (defaults to current working directory).")] = None,
-    hf_cache_dir: Annotated[Path, Option("--hf-cache-dir", file_okay=False, dir_okay=True, help="HF cache directory (sets HF_HOME inside the job).")] = "/data/medlm_cache/.hf_cache",
-    hf_hub_offline: Annotated[bool, Option("--hf-hub-offline/--no-hf-hub-offline", help="Set HF_HUB_OFFLINE=1 inside the job to prevent runtime downloads.")] = False,
-    priority: Annotated[QoS | None, Option("--priority", help="SLURM job priority (sets the SLURM QoS value). Only project leads can set high.")] = None,
-    mail: Annotated[MailSetting | None, Option("--mail", help="SLURM email setting: 'all' or 'begin_end'.")] = None,
-    mail_user: Annotated[str | None, Option("--mail-user", help="Email address for SLURM notifications.")] = None,
-    slurm_resume: Annotated[bool, Option("--slurm-resume/--no-slurm-resume", help="Enable SLURM requeue and resume from the latest checkpoint (sets ckpt.resume_step=-1).")] = False,
-    account: Annotated[Account, Option("--account", help="SLURM account to pass to sbatch.")] = Account.TRAINING,
-    dependency: Annotated[str | None, Option("--dependency", help="SLURM dependency expression for sbatch (e.g. 'afterok:12345' or 'singleton').")] = None,
-    test_only: Annotated[bool, Option("--test-only", help="Pass --test-only to sbatch to validate without submitting a job.")] = False,
+    config_toml: Annotated[Path, Argument(metavar="CONFIG_TOML", help="Path to the PRIME-RL SFT trainer TOML (supports `toml_files` inheritance).", rich_help_panel=PANEL_INPUTS)],
+    output_dir: Annotated[Path, Option("--output-dir", file_okay=False, dir_okay=True, help="Directory to write generated artifacts (configs/ and sft.sh).", rich_help_panel=PANEL_INPUTS)],
+    gpus: Annotated[int, Option("--gpus", min=1, max=8, help="Number of GPUs for SFT on this single node (sets SLURM gres and torchrun nproc-per-node).", rich_help_panel=PANEL_COMPUTE)],
+    cpus_per_gpu: Annotated[int, Option("--cpus-per-gpu", min=1, max=32, help="Number of CPUs to allocate per GPU (sets SLURM --cpus-per-gpu).", rich_help_panel=PANEL_COMPUTE)] = 16,
+    job_name: Annotated[str | None, Option("--job-name", help="SLURM job name. Defaults to '<config stem>-sft'.", rich_help_panel=PANEL_SUBMISSION)] = None,
+    account: Annotated[Account, Option("--account", help="SLURM account to pass to sbatch.", rich_help_panel=PANEL_SUBMISSION)] = Account.TRAINING,
+    priority: Annotated[QoS | None, Option("--priority", help="SLURM job priority (sets the SLURM QoS value). Only project leads can set high.", rich_help_panel=PANEL_SUBMISSION)] = None,
+    dependency: Annotated[str | None, Option("--dependency", help="SLURM dependency expression for sbatch (e.g. 'afterok:12345' or 'singleton').", rich_help_panel=PANEL_SUBMISSION)] = None,
+    test_only: Annotated[bool, Option("--test-only", help="Pass --test-only to sbatch to validate without submitting a job.", rich_help_panel=PANEL_SUBMISSION)] = False,
+    dry_run: Annotated[bool, Option("--dry-run", help="Write configs and script, print the `sbatch` command, and do not submit.", rich_help_panel=PANEL_SUBMISSION)] = False,
+    mail: Annotated[MailSetting | None, Option("--mail", help="SLURM email setting: 'all' or 'begin_end'.", rich_help_panel=PANEL_NOTIFY_RESUME)] = None,
+    mail_user: Annotated[str | None, Option("--mail-user", help="Email address for SLURM notifications.", rich_help_panel=PANEL_NOTIFY_RESUME)] = None,
+    slurm_resume: Annotated[bool, Option("--slurm-resume/--no-slurm-resume", help="Enable SLURM requeue and resume from the latest checkpoint (sets ckpt.resume_step=-1).", rich_help_panel=PANEL_NOTIFY_RESUME)] = False,
+    project_dir: Annotated[Path | None, Option("--project-dir", file_okay=False, dir_okay=True, help="Project root used by the script to source .env and activate .venv (defaults to current working directory).", rich_help_panel=PANEL_RUNTIME)] = None,
+    hf_cache_dir: Annotated[Path, Option("--hf-cache-dir", file_okay=False, dir_okay=True, help="HF cache directory (sets HF_HOME inside the job).", rich_help_panel=PANEL_RUNTIME)] = "/data/medlm_cache/.hf_cache",
+    hf_hub_offline: Annotated[bool, Option("--hf-hub-offline/--no-hf-hub-offline", help="Set HF_HUB_OFFLINE=1 inside the job to prevent runtime downloads.", rich_help_panel=PANEL_RUNTIME)] = False,
+    auto_auth: Annotated[bool, Option("--auto-auth/--no-auto-auth", help="Try to load HF_TOKEN from local CLI credentials and inject it into the sbatch submission environment.", rich_help_panel=PANEL_RUNTIME)] = False,
 ) -> None:  # fmt: skip
     output_dir = output_dir.expanduser().resolve()
     project_dir = _resolve_path(project_dir, Path.cwd())
@@ -318,25 +323,25 @@ def sft(
 )
 def rl(
     ctx: typer.Context,
-    config_toml: Annotated[Path, Argument( metavar="CONFIG_TOML", help="Path to the PRIME-RL RL TOML (supports `toml_files` inheritance).")],
-    output_dir: Annotated[Path, Option("--output-dir", file_okay=False, dir_okay=True, help="Directory to write generated artifacts (configs/ and rl.sh).")],
-    train_gpus: Annotated[int, Option("--train-gpus", min=1, max=4, help="Number of GPUs reserved for trainer processes (1..4). Total GPUs is train + infer.")] = 1,
-    infer_gpus: Annotated[int, Option("--infer-gpus", min=1, max=7, help="Number of GPUs reserved for local inference server (1..7). Total GPUs is train + infer.")] = 1,
-    single_gpu: Annotated[bool, Option("--single-gpu", help="Run trainer and inference on the same single GPU (shared). Overrides --train-gpus/--infer-gpus to 1/1.")] = False,
-    cpus_per_gpu: Annotated[int, Option("--cpus-per-gpu", min=1, max=32, help="Number of CPUs to allocate per GPU (sets SLURM --cpus-per-gpu).")] = 16,
-    job_name: Annotated[str | None, Option("--job-name", help="SLURM job name. Defaults to '<config stem>-rl'.")] = None,
-    dry_run: Annotated[bool, Option("--dry-run", help="Write configs and script, print the `sbatch` command, and do not submit.")] = False,
-    auto_auth: Annotated[bool, Option("--auto-auth/--no-auto-auth", help="Try to load HF_TOKEN from local CLI credentials and inject it into the sbatch submission environment.")] = False,
-    project_dir: Annotated[Path | None, Option("--project-dir", file_okay=False, dir_okay=True, help="Project root used by the script to source .env and activate .venv (defaults to current working directory).")] = None,
-    hf_cache_dir: Annotated[Path, Option("--hf-cache-dir", file_okay=False, dir_okay=True, help="HF cache directory (sets HF_HOME inside the job).")] = "/data/medlm_cache/.hf_cache",
-    hf_hub_offline: Annotated[bool, Option("--hf-hub-offline/--no-hf-hub-offline", help="Set HF_HUB_OFFLINE=1 inside the job to prevent runtime downloads.")] = False,
-    priority: Annotated[QoS | None, Option("--priority", help="SLURM job priority (sets the SLURM QoS value). Only project leads can set high.")] = None,
-    mail: Annotated[MailSetting | None, Option("--mail", help="SLURM email setting: 'all' or 'begin_end'.")] = None,
-    mail_user: Annotated[str | None, Option("--mail-user", help="Email address for SLURM notifications.")] = None,
-    slurm_resume: Annotated[bool, Option("--slurm-resume/--no-slurm-resume", help="Enable SLURM requeue and resume from the latest checkpoint (sets ckpt.resume_step=-1).")] = False,
-    account: Annotated[Account, Option("--account", help="SLURM account to pass to sbatch.")] = Account.TRAINING,
-    dependency: Annotated[str | None, Option("--dependency", help="SLURM dependency expression for sbatch (e.g. 'afterok:12345' or 'singleton').")] = None,
-    test_only: Annotated[bool, Option("--test-only", help="Pass --test-only to sbatch to validate without submitting a job.")] = False,
+    config_toml: Annotated[Path, Argument(metavar="CONFIG_TOML", help="Path to the PRIME-RL RL TOML (supports `toml_files` inheritance).", rich_help_panel=PANEL_INPUTS)],
+    output_dir: Annotated[Path, Option("--output-dir", file_okay=False, dir_okay=True, help="Directory to write generated artifacts (configs/ and rl.sh).", rich_help_panel=PANEL_INPUTS)],
+    single_gpu: Annotated[bool, Option("--single-gpu", help="Run trainer and inference on the same single GPU (shared). Overrides --train-gpus/--infer-gpus to 1/1.", rich_help_panel=PANEL_COMPUTE)] = False,
+    train_gpus: Annotated[int, Option("--train-gpus", min=1, max=4, help="Number of GPUs reserved for trainer processes (1..4). Total GPUs is train + infer.", rich_help_panel=PANEL_COMPUTE)] = 1,
+    infer_gpus: Annotated[int, Option("--infer-gpus", min=1, max=7, help="Number of GPUs reserved for local inference server (1..7). Total GPUs is train + infer.", rich_help_panel=PANEL_COMPUTE)] = 1,
+    cpus_per_gpu: Annotated[int, Option("--cpus-per-gpu", min=1, max=32, help="Number of CPUs to allocate per GPU (sets SLURM --cpus-per-gpu).", rich_help_panel=PANEL_COMPUTE)] = 16,
+    job_name: Annotated[str | None, Option("--job-name", help="SLURM job name. Defaults to '<config stem>-rl'.", rich_help_panel=PANEL_SUBMISSION)] = None,
+    account: Annotated[Account, Option("--account", help="SLURM account to pass to sbatch.", rich_help_panel=PANEL_SUBMISSION)] = Account.TRAINING,
+    priority: Annotated[QoS | None, Option("--priority", help="SLURM job priority (sets the SLURM QoS value). Only project leads can set high.", rich_help_panel=PANEL_SUBMISSION)] = None,
+    dependency: Annotated[str | None, Option("--dependency", help="SLURM dependency expression for sbatch (e.g. 'afterok:12345' or 'singleton').", rich_help_panel=PANEL_SUBMISSION)] = None,
+    test_only: Annotated[bool, Option("--test-only", help="Pass --test-only to sbatch to validate without submitting a job.", rich_help_panel=PANEL_SUBMISSION)] = False,
+    dry_run: Annotated[bool, Option("--dry-run", help="Write configs and script, print the `sbatch` command, and do not submit.", rich_help_panel=PANEL_SUBMISSION)] = False,
+    mail: Annotated[MailSetting | None, Option("--mail", help="SLURM email setting: 'all' or 'begin_end'.", rich_help_panel=PANEL_NOTIFY_RESUME)] = None,
+    mail_user: Annotated[str | None, Option("--mail-user", help="Email address for SLURM notifications.", rich_help_panel=PANEL_NOTIFY_RESUME)] = None,
+    slurm_resume: Annotated[bool, Option("--slurm-resume/--no-slurm-resume", help="Enable SLURM requeue and resume from the latest checkpoint (sets ckpt.resume_step=-1).", rich_help_panel=PANEL_NOTIFY_RESUME)] = False,
+    project_dir: Annotated[Path | None, Option("--project-dir", file_okay=False, dir_okay=True, help="Project root used by the script to source .env and activate .venv (defaults to current working directory).", rich_help_panel=PANEL_RUNTIME)] = None,
+    hf_cache_dir: Annotated[Path, Option("--hf-cache-dir", file_okay=False, dir_okay=True, help="HF cache directory (sets HF_HOME inside the job).", rich_help_panel=PANEL_RUNTIME)] = "/data/medlm_cache/.hf_cache",
+    hf_hub_offline: Annotated[bool, Option("--hf-hub-offline/--no-hf-hub-offline", help="Set HF_HUB_OFFLINE=1 inside the job to prevent runtime downloads.", rich_help_panel=PANEL_RUNTIME)] = False,
+    auto_auth: Annotated[bool, Option("--auto-auth/--no-auto-auth", help="Try to load HF_TOKEN from local CLI credentials and inject it into the sbatch submission environment.", rich_help_panel=PANEL_RUNTIME)] = False,
 ) -> None:  # fmt: skip
     output_dir = output_dir.expanduser().resolve()
     project_dir = _resolve_path(project_dir, Path.cwd())
