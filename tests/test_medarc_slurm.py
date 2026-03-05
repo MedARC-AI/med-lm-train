@@ -598,3 +598,105 @@ def test_dry_run_does_not_call_sbatch(tmp_path: Path, monkeypatch) -> None:
 
     assert result.exit_code == 0, result.output
     run_mock.assert_not_called()
+
+
+def test_sft_dry_run_renders_dependency_and_test_only_flags(tmp_path: Path) -> None:
+    config_path = _build_sft_inherited_config(tmp_path)
+    output_dir = tmp_path / "sft_out_dep_test_only"
+
+    result = runner.invoke(
+        app,
+        [
+            "sft",
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--gpus",
+            "1",
+            "--dependency",
+            "afterok:12345",
+            "--test-only",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert f"sbatch --account training --dependency afterok:12345 --test-only {output_dir / 'sft.sh'}" in result.output
+
+
+def test_rl_dry_run_renders_dependency_and_test_only_flags(tmp_path: Path) -> None:
+    config_path = _build_rl_inherited_config(tmp_path, cp=1, tp=1)
+    output_dir = tmp_path / "rl_out_dep_test_only"
+
+    result = runner.invoke(
+        app,
+        [
+            "rl",
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--dependency",
+            "singleton",
+            "--test-only",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert f"sbatch --account training --dependency singleton --test-only {output_dir / 'rl.sh'}" in result.output
+
+
+def test_sft_rejects_empty_dependency(tmp_path: Path) -> None:
+    config_path = _build_sft_inherited_config(tmp_path)
+    output_dir = tmp_path / "sft_out_empty_dependency"
+
+    result = runner.invoke(
+        app,
+        [
+            "sft",
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--gpus",
+            "1",
+            "--dependency",
+            "   ",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "--dependency must not be empty." in result.output
+
+
+def test_sft_test_only_submits_sbatch_with_flag(tmp_path: Path, monkeypatch) -> None:
+    config_path = _build_sft_inherited_config(tmp_path)
+    output_dir = tmp_path / "sft_out_test_only_submit"
+    run_mock = Mock(
+        return_value=subprocess.CompletedProcess(
+            args=["sbatch"],
+            returncode=0,
+            stdout="sbatch: Job test successful\n",
+            stderr="",
+        )
+    )
+    monkeypatch.setattr("medarc_rl.medarc_slurm.subprocess.run", run_mock)
+
+    result = runner.invoke(
+        app,
+        [
+            "sft",
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--gpus",
+            "1",
+            "--test-only",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    run_mock.assert_called_once()
+    sbatch_cmd = run_mock.call_args.args[0]
+    assert sbatch_cmd[0] == "sbatch"
+    assert "--test-only" in sbatch_cmd

@@ -111,16 +111,26 @@ def _submit_or_print(
     *,
     dry_run: bool,
     account: str | Account | None = None,
+    dependency: str | None = None,
+    test_only: bool = False,
     env: dict[str, str] | None = None,
 ) -> None:
     if account is None:
         account = Account.TRAINING
     if isinstance(account, Account):
         account = account.value
+    if dependency is not None:
+        dependency = dependency.strip()
+        if not dependency:
+            raise typer.BadParameter("--dependency must not be empty.", param_hint="--dependency")
 
     sbatch_cmd = ["sbatch"]
     if account:
         sbatch_cmd.extend(["--account", account])
+    if dependency:
+        sbatch_cmd.extend(["--dependency", dependency])
+    if test_only:
+        sbatch_cmd.append("--test-only")
     sbatch_cmd.append(str(script_path))
 
     cmd = shlex.join(sbatch_cmd)
@@ -255,6 +265,8 @@ def sft(
     mail_user: Annotated[str | None, Option("--mail-user", help="Email address for SLURM notifications.")] = None,
     slurm_resume: Annotated[bool, Option("--slurm-resume/--no-slurm-resume", help="Enable SLURM requeue and resume from the latest checkpoint (sets ckpt.resume_step=-1).")] = False,
     account: Annotated[Account, Option("--account", help="SLURM account to pass to sbatch.")] = Account.TRAINING,
+    dependency: Annotated[str | None, Option("--dependency", help="SLURM dependency expression for sbatch (e.g. 'afterok:12345' or 'singleton').")] = None,
+    test_only: Annotated[bool, Option("--test-only", help="Pass --test-only to sbatch to validate without submitting a job.")] = False,
 ) -> None:  # fmt: skip
     output_dir = output_dir.expanduser().resolve()
     project_dir = _resolve_path(project_dir, Path.cwd())
@@ -286,7 +298,14 @@ def sft(
     submit_env = os.environ.copy()
     for msg in maybe_autoset_auth_env(submit_env, enabled=auto_auth):
         typer.echo(msg, err=True)
-    _submit_or_print(script_path, dry_run=dry_run, account=account, env=submit_env)
+    _submit_or_print(
+        script_path,
+        dry_run=dry_run,
+        account=account,
+        dependency=dependency,
+        test_only=test_only,
+        env=submit_env,
+    )
 
 
 @app.command(
@@ -316,6 +335,8 @@ def rl(
     mail_user: Annotated[str | None, Option("--mail-user", help="Email address for SLURM notifications.")] = None,
     slurm_resume: Annotated[bool, Option("--slurm-resume/--no-slurm-resume", help="Enable SLURM requeue and resume from the latest checkpoint (sets ckpt.resume_step=-1).")] = False,
     account: Annotated[Account, Option("--account", help="SLURM account to pass to sbatch.")] = Account.TRAINING,
+    dependency: Annotated[str | None, Option("--dependency", help="SLURM dependency expression for sbatch (e.g. 'afterok:12345' or 'singleton').")] = None,
+    test_only: Annotated[bool, Option("--test-only", help="Pass --test-only to sbatch to validate without submitting a job.")] = False,
 ) -> None:  # fmt: skip
     output_dir = output_dir.expanduser().resolve()
     project_dir = _resolve_path(project_dir, Path.cwd())
@@ -385,7 +406,14 @@ def rl(
     submit_env = os.environ.copy()
     for msg in maybe_autoset_auth_env(submit_env, enabled=auto_auth):
         typer.echo(msg, err=True)
-    _submit_or_print(script_path, dry_run=dry_run, account=account, env=submit_env)
+    _submit_or_print(
+        script_path,
+        dry_run=dry_run,
+        account=account,
+        dependency=dependency,
+        test_only=test_only,
+        env=submit_env,
+    )
 
 
 if __name__ == "__main__":

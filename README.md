@@ -57,6 +57,14 @@ medarc_slurm sft config.toml \
   --mail all \
   --mail-user email@domain.com \
   --slurm-resume
+
+# Validate an RL submission (including dependency syntax) without creating a job
+medarc_slurm rl config.toml \
+  --output-dir runs/my-rl \
+  --train-gpus 1 \
+  --infer-gpus 2 \
+  --dependency afterok:123456 \
+  --test-only
 ```
 
 Generated artifacts are written to `--output-dir`:
@@ -67,6 +75,7 @@ You can pass PRIME-RL config overrides directly as extra flags (for example `--w
 
 `medarc_slurm` now defaults `--account` to `training`. You can override it with `--account <name>`.
 Email mode is `--mail all` or `--mail begin_end` (with `--mail-user`).
+Use `--dependency "<expr>"` to pass SLURM dependencies and `--test-only` to run `sbatch` validation without submitting.
 
 Run `medarc_slurm sft --help` or `medarc_slurm rl --help` for more details on available options.
 
