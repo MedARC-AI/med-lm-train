@@ -600,6 +600,105 @@ def test_dry_run_does_not_call_sbatch(tmp_path: Path, monkeypatch) -> None:
     run_mock.assert_not_called()
 
 
+def test_sft_accepts_config_option(tmp_path: Path) -> None:
+    config_path = _build_sft_inherited_config(tmp_path)
+    output_dir = tmp_path / "sft_out_config_option"
+
+    result = runner.invoke(
+        app,
+        [
+            "sft",
+            "--config",
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--gpus",
+            "1",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (output_dir / "sft.sh").exists()
+
+
+def test_sft_rejects_both_config_option_and_positional(tmp_path: Path) -> None:
+    config_path = _build_sft_inherited_config(tmp_path)
+    output_dir = tmp_path / "sft_out_config_conflict"
+
+    result = runner.invoke(
+        app,
+        [
+            "sft",
+            "--config",
+            str(config_path),
+            str(config_path),
+            "--output-dir",
+            str(output_dir),
+            "--gpus",
+            "1",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert "either --config or positional CONFIG_TOML" in result.output
+
+
+def test_sft_uses_toml_output_dir_when_output_dir_omitted(tmp_path: Path) -> None:
+    config_path = _build_sft_inherited_config(tmp_path)
+    toml_output_dir = tmp_path / "sft_out_from_toml"
+    config_with_output = _write(
+        tmp_path / "sft_with_output.toml",
+        f"""
+        toml_files = ["{config_path.name}"]
+        output_dir = "{toml_output_dir}"
+        """,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "sft",
+            "--config",
+            str(config_with_output),
+            "--gpus",
+            "1",
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (toml_output_dir / "sft.sh").exists()
+    assert f"{toml_output_dir / 'sft.sh'}" in result.output
+
+
+def test_rl_uses_toml_output_dir_when_output_dir_omitted(tmp_path: Path) -> None:
+    config_path = _build_rl_inherited_config(tmp_path, cp=1, tp=1)
+    toml_output_dir = tmp_path / "rl_out_from_toml"
+    config_with_output = _write(
+        tmp_path / "rl_with_output.toml",
+        f"""
+        toml_files = ["{config_path.name}"]
+        output_dir = "{toml_output_dir}"
+        """,
+    )
+
+    result = runner.invoke(
+        app,
+        [
+            "rl",
+            "--config",
+            str(config_with_output),
+            "--dry-run",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (toml_output_dir / "rl.sh").exists()
+    assert f"{toml_output_dir / 'rl.sh'}" in result.output
+
+
 def test_sft_dry_run_renders_dependency_and_test_only_flags(tmp_path: Path) -> None:
     config_path = _build_sft_inherited_config(tmp_path)
     output_dir = tmp_path / "sft_out_dep_test_only"
