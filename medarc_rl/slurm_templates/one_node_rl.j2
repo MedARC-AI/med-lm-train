@@ -3,8 +3,8 @@
 #SBATCH --job-name={{ job_name }}
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
-#SBATCH --gpus-per-task={{ total_gpus }}
-{% if total_gpus == 8 %}
+#SBATCH --gpus-per-task={{ gpus }}
+{% if gpus == 8 %}
 #SBATCH --exclusive
 {% else %}
 #SBATCH --cpus-per-gpu={{ cpus_per_gpu }}
