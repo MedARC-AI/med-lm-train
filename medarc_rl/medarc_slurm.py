@@ -59,24 +59,6 @@ class Account(StrEnum):
 
 def _resolve_path(path: Path | None, fallback: Path) -> Path:
     return (path or fallback).expanduser().resolve()
-
-
-def _resolve_config_path(ctx: typer.Context, config: Path | None) -> tuple[Path, bool]:
-    args = [arg for arg in ctx.args if arg != "--"]
-    positional = Path(args[0]) if args and not args[0].startswith("-") else None
-    if config is not None and positional is not None:
-        raise typer.BadParameter(
-            "Pass config via either --config or positional CONFIG_TOML, not both.",
-            param_hint="--config",
-        )
-    if config is None and positional is None:
-        raise typer.BadParameter(
-            "Missing config path. Pass --config (or positional CONFIG_TOML).",
-            param_hint="--config",
-        )
-    return (config or positional), positional is not None
-
-
 def _default_hf_cache_dir(project_dir: Path, explicit: Path | None) -> Path:
     if explicit is not None:
         return explicit.expanduser().resolve()
@@ -167,7 +149,7 @@ def _submit_or_print(
 
 
 def _load_sft_config(
-    config_toml: Path,
+    config_tomls: list[Path],
     output_dir: Path | None,
     *,
     extra_cli_args: list[str] | None = None,
@@ -175,11 +157,11 @@ def _load_sft_config(
     kwargs: dict[str, Any] = {"extra_cli_args": extra_cli_args}
     if output_dir is not None:
         kwargs["output_dir"] = output_dir
-    return _load_settings_from_toml(SFTConfig, config_toml, **kwargs)
+    return _load_settings_from_toml(SFTConfig, config_tomls, **kwargs)
 
 
 def _load_rl_config(
-    config_toml: Path,
+    config_tomls: list[Path],
     output_dir: Path | None,
     *,
     train_gpus: int,
@@ -192,7 +174,7 @@ def _load_rl_config(
     }
     if output_dir is not None:
         kwargs["output_dir"] = output_dir
-    return _load_settings_from_toml(RLConfig, config_toml, **kwargs)
+    return _load_settings_from_toml(RLConfig, config_tomls, **kwargs)
 
 
 def _write_sft_outputs(
@@ -238,7 +220,7 @@ def _write_rl_outputs(
     hf_cache_dir: Path,
     hf_hub_offline: bool,
     job_name: str,
-    total_gpus: int,
+    gpus: int,
     single_gpu: bool,
     cpus_per_gpu: int,
     priority: QoS | None,
@@ -260,7 +242,7 @@ def _write_rl_outputs(
         project_dir=str(project_dir),
         hf_cache_dir=str(hf_cache_dir),
         hf_hub_offline=hf_hub_offline,
-        total_gpus=total_gpus,
+        gpus=gpus,
         single_gpu=single_gpu,
         cpus_per_gpu=cpus_per_gpu,
         qos=priority.value if priority is not None else None,
@@ -281,7 +263,7 @@ def sft(
     ctx: typer.Context,
     gpus: Annotated[int, Option("--gpus", min=1, max=8, help="Number of GPUs for SFT on this single node (sets SLURM gres and torchrun nproc-per-node).", rich_help_panel=PANEL_COMPUTE)],
     output_dir: Annotated[Path | None, Option("--output-dir", file_okay=False, dir_okay=True, help="Optional output directory for generated artifacts (configs/ and sft.sh). Overrides output_dir from TOML when set.", rich_help_panel=PANEL_INPUTS)] = None,
-    config: Annotated[Path | None, Option("--config", "--config-toml", help="Path to the PRIME-RL SFT trainer TOML (supports `toml_files` inheritance).", rich_help_panel=PANEL_INPUTS)] = None,
+    config: Annotated[list[Path] | None, Option("--config", "--config-toml", help="One or more PRIME-RL SFT trainer TOMLs. Repeat `--config` to layer files with later files overriding earlier ones.", rich_help_panel=PANEL_INPUTS)] = None,
     cpus_per_gpu: Annotated[int, Option("--cpus-per-gpu", min=1, max=32, help="Number of CPUs to allocate per GPU (sets SLURM --cpus-per-gpu).", rich_help_panel=PANEL_COMPUTE)] = 16,
     job_name: Annotated[str | None, Option("--job-name", help="SLURM job name. Defaults to '<config stem>-sft'.", rich_help_panel=PANEL_SUBMISSION)] = None,
     account: Annotated[Account, Option("--account", help="SLURM account to pass to sbatch.", rich_help_panel=PANEL_SUBMISSION)] = Account.TRAINING,
@@ -297,7 +279,9 @@ def sft(
     hf_hub_offline: Annotated[bool, Option("--hf-hub-offline/--no-hf-hub-offline", help="Set HF_HUB_OFFLINE=1 inside the job to prevent runtime downloads.", rich_help_panel=PANEL_RUNTIME)] = False,
     auto_auth: Annotated[bool, Option("--auto-auth/--no-auto-auth", help="Try to load HF_TOKEN from local CLI credentials and inject it into the sbatch submission environment.", rich_help_panel=PANEL_RUNTIME)] = False,
 ) -> None:  # fmt: skip
-    config_toml, used_positional_config = _resolve_config_path(ctx, config)
+    config_tomls = list(config or [])
+    if not config_tomls:
+        raise typer.BadParameter("Missing config path. Pass one or more --config values.", param_hint="--config")
     output_dir_override = output_dir.expanduser().resolve() if output_dir is not None else None
     project_dir = _resolve_path(source_dir, Path.cwd())
     hf_cache_dir = _default_hf_cache_dir(project_dir, hf_cache_dir)
@@ -306,14 +290,15 @@ def sft(
     if mail is not None and not mail_user:
         raise typer.BadParameter("--mail-user is required when --mail is set.", param_hint="--mail-user")
     mail_type = "begin,end" if mail == MailSetting.BEGIN_END else (mail.value if mail is not None else None)
+    resolved_config_paths = [path.expanduser().resolve() for path in config_tomls]
     sft_config = _load_sft_config(
-        config_toml.expanduser().resolve(),
+        resolved_config_paths,
         output_dir_override,
-        extra_cli_args=extra_config_args(ctx, positional_count=1 if used_positional_config else 0),
+        extra_cli_args=extra_config_args(ctx, positional_count=0),
     )
     output_dir = output_dir_override or sft_config.output_dir.expanduser().resolve()
     sft_config.output_dir = output_dir
-    job_name = job_name or f"{config_toml.stem}-sft"
+    job_name = job_name or f"{resolved_config_paths[-1].stem}-sft"
     _ensure_output_dirs(output_dir)
     _enable_sft_resume(sft_config, enabled=slurm_resume)
     script_path = _write_sft_outputs(
@@ -354,7 +339,7 @@ def sft(
 def rl(
     ctx: typer.Context,
     output_dir: Annotated[Path | None, Option("--output-dir", file_okay=False, dir_okay=True, help="Optional output directory for generated artifacts (configs/ and rl.sh). Overrides output_dir from TOML when set.", rich_help_panel=PANEL_INPUTS)] = None,
-    config: Annotated[Path | None, Option("--config", "--config-toml", help="Path to the PRIME-RL RL TOML (supports `toml_files` inheritance).", rich_help_panel=PANEL_INPUTS)] = None,
+    config: Annotated[list[Path] | None, Option("--config", "--config-toml", help="One or more PRIME-RL RL TOMLs. Repeat `--config` to layer files with later files overriding earlier ones.", rich_help_panel=PANEL_INPUTS)] = None,
     single_gpu: Annotated[bool, Option("--single-gpu", help="Run trainer and inference on the same single GPU (shared). Overrides --train-gpus/--infer-gpus to 1/1.", rich_help_panel=PANEL_COMPUTE)] = False,
     train_gpus: Annotated[int, Option("--train-gpus", min=1, max=4, help="Number of GPUs reserved for trainer processes (1..4). Total GPUs is train + infer.", rich_help_panel=PANEL_COMPUTE)] = 1,
     infer_gpus: Annotated[int, Option("--infer-gpus", min=1, max=7, help="Number of GPUs reserved for local inference server (1..7). Total GPUs is train + infer.", rich_help_panel=PANEL_COMPUTE)] = 1,
@@ -373,16 +358,19 @@ def rl(
     hf_hub_offline: Annotated[bool, Option("--hf-hub-offline/--no-hf-hub-offline", help="Set HF_HUB_OFFLINE=1 inside the job to prevent runtime downloads.", rich_help_panel=PANEL_RUNTIME)] = False,
     auto_auth: Annotated[bool, Option("--auto-auth/--no-auto-auth", help="Try to load HF_TOKEN from local CLI credentials and inject it into the sbatch submission environment.", rich_help_panel=PANEL_RUNTIME)] = False,
 ) -> None:  # fmt: skip
-    config_toml, used_positional_config = _resolve_config_path(ctx, config)
+    config_tomls = list(config or [])
+    if not config_tomls:
+        raise typer.BadParameter("Missing config path. Pass one or more --config values.", param_hint="--config")
     output_dir_override = output_dir.expanduser().resolve() if output_dir is not None else None
     project_dir = _resolve_path(source_dir, Path.cwd())
     hf_cache_dir = _default_hf_cache_dir(project_dir, hf_cache_dir)
-    job_name = job_name or f"{config_toml.stem}-rl"
+    resolved_config_paths = [path.expanduser().resolve() for path in config_tomls]
+    job_name = job_name or f"{resolved_config_paths[-1].stem}-rl"
     train_gpus = 1 if single_gpu else train_gpus
     infer_gpus = 1 if single_gpu else infer_gpus
-    total_gpus = 1 if single_gpu else (train_gpus + infer_gpus)
+    gpus = 1 if single_gpu else (train_gpus + infer_gpus)
 
-    if (not single_gpu and total_gpus < 2) or total_gpus > 8:
+    if (not single_gpu and gpus < 2) or gpus > 8:
         raise typer.BadParameter(
             (
                 f"Total GPUs must be between 2 and 8, got train_gpus ({train_gpus}) + "
@@ -398,11 +386,11 @@ def rl(
     mail_type = "begin,end" if mail == MailSetting.BEGIN_END else (mail.value if mail is not None else None)
     try:
         config = _load_rl_config(
-            config_toml.expanduser().resolve(),
+            resolved_config_paths,
             output_dir_override,
             train_gpus=train_gpus,
             infer_gpus=infer_gpus,
-            extra_cli_args=extra_config_args(ctx, positional_count=1 if used_positional_config else 0),
+            extra_cli_args=extra_config_args(ctx, positional_count=0),
         )
     except ValidationError as e:
         raise typer.BadParameter(
@@ -433,7 +421,7 @@ def rl(
         hf_cache_dir=hf_cache_dir,
         hf_hub_offline=hf_hub_offline,
         job_name=job_name,
-        total_gpus=total_gpus,
+        gpus=gpus,
         single_gpu=single_gpu,
         cpus_per_gpu=cpus_per_gpu,
         priority=priority,

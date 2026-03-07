@@ -72,8 +72,7 @@ Generated artifacts are written to `--output-dir`:
 - `sft.sh` or `rl.sh` — the SLURM batch script
 - `configs/` — resolved TOML subconfigs passed to each component
 
-You can pass PRIME-RL config overrides directly as extra flags (for example `--wandb.project my-proj --wandb.name my-run`). You may also insert `--` before passthrough overrides for readability, but it is optional.
-`CONFIG_TOML` is still accepted positionally for backwards compatibility.
+You can pass PRIME-RL config overrides directly as extra flags (for example `--wandb.project my-proj --wandb.name my-run`). You may also insert `--` before passthrough overrides for readability, but it is optional. To layer multiple PRIME-RL configs, repeat `--config` with later files overriding earlier ones.
 
 `medarc_slurm` now defaults `--account` to `training`. You can override it with `--account <name>`.
 Email mode is `--mail all` or `--mail begin_end` (with `--mail-user`).
