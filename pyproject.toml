@@ -9,6 +9,7 @@ dependencies = [
     "medarc-verifiers",
     "prime-rl",
     "tomli-w>=1.2.0",
+    "torchvision",
     "typer>=0.24.1",
     "verifiers",
     "wandb==0.25.1",
@@ -39,6 +40,7 @@ module-root = ""
 [tool.uv.sources]
 prime-rl = { path = "prime-rl", editable = true }
 torch = { index = "pytorch-cu128" }
+torchvision = { index = "pytorch-cu128" }
 transformers = { git = "https://github.com/huggingface/transformers.git", rev = "c1c3424" }
 flash_attn_3 = { index = "pytorch-cu128-test" }
 
@@ -74,6 +76,7 @@ override-dependencies = [
     "nvidia-cudnn-cu12>=9.15",
     "nvidia-cutlass-dsl>=4.4.1",
     "verifiers",
+    "vllm>=0.19.0,<0.20.0",
     "transformers>=5.1.0.dev0",
     "quack-kernels>=0.3.3",
 ]
