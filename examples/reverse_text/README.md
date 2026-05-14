@@ -4,16 +4,18 @@
 
 We demonstrate how to train `Qwen3-0.6B` to reverse a small chunk of text. We use a SFT warmup to learn the skill of text reversal on longer documents and then a quick RL run to reverse smaller chunks of text in the [`reverse-text`](https://app.primeintellect.ai/dashboard/environments/primeintellect/reverse-text) environment.
 
-> Info: The configs in this example are tuned for H100 GPUs. If you're on consumer GPUs, you may need to lower `micro_batch_size` in `sft.toml` and/or `seq_len` in the RL config you use (`rl_multi.toml`, `rl_single.toml`, or `rl_slurm.toml`). See **Batching Options** at the end for token-based alternatives and microbatching notes.
+> Info: The configs in this example follow PRIME-RL's upstream reverse-text example. If you're on consumer GPUs, you may need to lower SFT `data.batch_size` and/or RL `seq_len` in the config you use (`rl_multi.toml`, `rl_single.toml`, or `rl_slurm.toml`). See **Batching Options** at the end for token-based alternatives and memory notes.
 
 > Note: `medarc_train` and `medarc_slurm` accept arbitrary PRIME-RL config overrides as CLI flags. In these examples, we use that passthrough to set `wandb.project` and `wandb.name`.
 
 ## Setup
 
-Install the bundled PRIME-RL environment packages (assuming you want flash attention 3 for Ampere, Hopper, and Lovelace GPUs):
+Install the bundled PRIME-RL environment packages. Add the flash-attention extra that matches your GPU:
 
 ```bash
-uv sync --extra envs --extra fa3
+uv sync --extra envs --extra fa2   # broadly compatible
+uv sync --extra envs --extra fa3   # H100s
+uv sync --extra envs --extra fa4   # B200s
 ```
 Verify it's installed:
 
@@ -104,7 +106,7 @@ medarc_slurm sft --config examples/reverse_text/sft.toml \
 
 ## RL
 
-For RL we do 20 steps with sequence length 128. All three RL configs in this example use the same orchestrator batching as PRIME-RL's reverse-text example (`batch_size = 128`, `rollouts_per_example = 16`, i.e. 8 examples x 16 rollouts). The single-GPU configs differ in deployment/runtime settings (for example vLLM memory utilization), not orchestrator batching.
+For RL we do 20 steps with training sequence length 2048 and `max_completion_tokens = 128`. All three RL configs in this example use the same orchestrator batching as PRIME-RL's reverse-text example (`batch_size = 128`, `rollouts_per_example = 16`, i.e. 8 examples x 16 rollouts). The single-GPU configs differ in deployment/runtime settings (for example vLLM memory utilization), not orchestrator batching.
 
 ### Local (single GPU)
 
@@ -222,8 +224,8 @@ This is only approximate: token-based mode stabilizes token volume per step, whi
 
 SFT and RL expose memory/throughput tradeoffs differently:
 
-- SFT has an explicit `micro_batch_size` (`sft.toml`), and PRIME-RL accumulates gradients across micro-steps to reach the configured global `batch_size`.
-- If SFT still OOMs after lowering `micro_batch_size`, lower `seq_len` next (this reduces context length and can truncate more tokens).
+- SFT memory primarily follows `data.batch_size` and `data.seq_len` in `sft.toml`.
+- If SFT OOMs, lower `data.batch_size` first, then lower `data.seq_len` if needed.
 
 RL does not use the same explicit `micro_batch_size` knob:
 

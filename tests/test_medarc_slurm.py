@@ -100,9 +100,9 @@ def _build_rl_inherited_config(
     return base, child
 
 
-def _build_rl_hard_distill_config(tmp_path: Path) -> tuple[Path]:
+def _build_rl_teacher_rollout_sft_config(tmp_path: Path) -> tuple[Path]:
     config = _write(
-        tmp_path / "rl_hard_distill.toml",
+        tmp_path / "rl_teacher_rollout_sft.toml",
         """
         max_steps = 2
 
@@ -115,6 +115,7 @@ def _build_rl_hard_distill_config(tmp_path: Path) -> tuple[Path]:
 
         [orchestrator]
         use_token_client = false
+        use_sft_loss = true
 
         [orchestrator.teacher_rollout_model.client]
         base_url = ["https://teacher.example/v1"]
@@ -127,9 +128,9 @@ def _build_rl_hard_distill_config(tmp_path: Path) -> tuple[Path]:
     return (config,)
 
 
-def _build_rl_hard_distill_nccl_config(tmp_path: Path) -> tuple[Path]:
+def _build_rl_teacher_rollout_sft_nccl_config(tmp_path: Path) -> tuple[Path]:
     config = _write(
-        tmp_path / "rl_hard_distill_nccl.toml",
+        tmp_path / "rl_teacher_rollout_sft_nccl.toml",
         """
         max_steps = 2
 
@@ -145,6 +146,7 @@ def _build_rl_hard_distill_nccl_config(tmp_path: Path) -> tuple[Path]:
 
         [orchestrator]
         use_token_client = false
+        use_sft_loss = true
 
         [orchestrator.teacher_rollout_model.client]
         base_url = ["https://teacher.example/v1"]
@@ -376,9 +378,9 @@ def test_rl_dry_run_generates_normalized_subconfigs_and_safe_script(tmp_path: Pa
     assert "uv sync" not in script
 
 
-def test_rl_dry_run_allows_hard_distill_without_inference(tmp_path: Path) -> None:
-    config_paths = _build_rl_hard_distill_config(tmp_path)
-    output_dir = tmp_path / "rl_out_hard_distill"
+def test_rl_dry_run_allows_teacher_rollout_sft_without_inference(tmp_path: Path) -> None:
+    config_paths = _build_rl_teacher_rollout_sft_config(tmp_path)
+    output_dir = tmp_path / "rl_out_teacher_rollout_sft"
 
     result = runner.invoke(
         app,
@@ -399,9 +401,9 @@ def test_rl_dry_run_allows_hard_distill_without_inference(tmp_path: Path) -> Non
     assert rl_cfg["orchestrator"]["teacher_rollout_model"]["model"]["name"] == "teacher-model"
 
 
-def test_rl_rejects_hard_distill_with_nccl_broadcast_and_no_inference(tmp_path: Path) -> None:
-    config_paths = _build_rl_hard_distill_nccl_config(tmp_path)
-    output_dir = tmp_path / "rl_out_hard_distill_nccl"
+def test_rl_rejects_teacher_rollout_sft_with_nccl_broadcast_and_no_inference(tmp_path: Path) -> None:
+    config_paths = _build_rl_teacher_rollout_sft_nccl_config(tmp_path)
+    output_dir = tmp_path / "rl_out_teacher_rollout_sft_nccl"
 
     result = runner.invoke(
         app,

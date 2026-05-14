@@ -10,10 +10,12 @@ Note: `medarc_train` and `medarc_slurm` accept arbitrary PRIME-RL config overrid
 
 ## Setup
 
-Install the bundled PRIME-RL environment packages (assuming you want flash attention 3 for Ampere, Hopper, and Lovelace GPUs):
+Install the bundled PRIME-RL environment packages. Add the flash-attention extra that matches your GPU:
 
 ```bash
-uv sync --extra envs --extra fa3
+uv sync --extra envs --extra fa2   # broadly compatible
+uv sync --extra envs --extra fa3   # H100s
+uv sync --extra envs --extra fa4   # B200s
 ```
 
 Verify it's installed:

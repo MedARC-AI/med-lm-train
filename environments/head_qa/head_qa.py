@@ -118,6 +118,7 @@ def load_environment(
             "ra": answer_idx + 1,
         }
         mapped = zero_shot_prompt(temp_example)
+        mapped["task"] = "head_qa"
 
         if dataset_split == "train":
             row_answer_format = choose_training_answer_format(

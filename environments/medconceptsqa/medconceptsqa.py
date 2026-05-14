@@ -223,6 +223,7 @@ def load_environment(
         mapped = {
             "question": full_question,
             "answer": answer,
+            "task": "medconceptsqa",
             "info": add_answer_format_metadata(
                 info,
                 answer_format=row_answer_format,

@@ -134,6 +134,7 @@ def load_environment(
             "cop": answer_idx + 1,
         }
         mapped = med_mcqa(line)
+        mapped["task"] = "med_mcqa"
         info = {
             "answer_text": options[answer_idx],
             **({"options": dict(zip(LETTER_INDICES, options))} if dataset_split == "eval" and shuffle_answers else {}),

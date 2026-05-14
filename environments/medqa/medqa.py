@@ -95,6 +95,7 @@ def load_environment(
         mapped = {
             "question": _build_prompt(q, options),
             "answer": gold_letter,
+            "task": "medqa",
             "info": add_answer_format_metadata(
                 info,
                 answer_format=row_answer_format,

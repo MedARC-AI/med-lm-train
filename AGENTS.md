@@ -2,27 +2,24 @@
 
 This file provides guidance to Codex, Claude Code, and other coding agents when working with code in this repository.
 
-## Overview
+## Project Rules
 
-med-lm-train provides CLI tools (`medarc_slurm`, `medarc_train`) for single-node SLURM submission and local SFT/RL training workflows built on PRIME-RL.
+`prime-rl/` is a pinned external git submodule. Update the submodule pointer when asked, but do not edit files inside `prime-rl/`.
 
-`prime-rl/` is a pinned external git submodule — do not modify.
+When updating to a newer PRIME-RL revision, target the new PRIME-RL API/config shape directly. Do not add legacy compatibility shims, aliases, migration layers, or support for removed/deprecated options unless the user explicitly asks for backward compatibility. Rename stale local concepts/tests to match current PRIME-RL terminology.
+
+`uv` does not inherit `[tool.uv.sources]`, indexes, or overrides from the `prime-rl/` path dependency. If a PRIME-RL update needs custom wheels, workspace packages such as `prime-rl-configs`, or private indexes, add the minimum required resolver configuration to this repo's root `pyproject.toml`.
+
+Use the README for human-facing setup, install, and CLI usage details. Keep this file focused on instructions that are easy for agents to miss.
 
 ## Commands
 
 ```bash
-uv sync                                        # Install deps
-uv sync --extra fa2                            # With Flash Attention v2
-uv sync --extra fa3                            # With FA2 + FA3 (H100s)
-uv sync --extra fa4                            # With FA2 + FA3 + FA4 (B200s)
-
-pytest tests/                                   # Run tests
-pytest tests/test_medarc_slurm.py::test_name    # Single test
-ruff check medarc_rl tests                      # Lint
-ruff format medarc_rl tests                     # Format
+uv run pytest tests/                                   # Run tests
+uv run pytest tests/test_medarc_slurm.py::test_name    # Single test
+uv run ruff check medarc_rl tests                      # Lint
+uv run ruff format medarc_rl tests                     # Format
 ```
-
-Legacy extras `flash-attn-2`, `flash-attn-3`, and `flash-attn-4` remain supported for backward compatibility.
 
 Testing scope:
 - `pyproject.toml` sets `pytest` `testpaths = ["tests"]`, so default collection is scoped correctly.
@@ -30,25 +27,13 @@ Testing scope:
 - Avoid `pytest .` (or other explicit repo-root paths), which can widen collection and include `prime-rl/tests/`.
 - Only run this repo's tests under `tests/` unless the user explicitly asks to run PRIME-RL tests.
 
-## Architecture
+## Architecture Notes
 
-### CLI (`medarc_rl/medarc_slurm.py`)
+`medarc_rl/medarc_slurm.py` generates single-node SLURM jobs for PRIME-RL SFT/RL. It loads PRIME-RL TOML configs, applies wrapper-owned fields such as GPU split and output directory, writes resolved configs and scripts, then submits via `sbatch` or prints in `--dry-run` mode.
 
-Typer-based CLI with two commands (`sft` and `rl`). Each command:
-1. Loads and resolves TOML configs using PRIME-RL's Pydantic config classes
-2. Renders a Jinja2 SLURM template (`medarc_rl/slurm_templates/`)
-3. Writes the script + resolved configs to the output directory
-4. Submits via `sbatch` (or prints in `--dry-run` mode)
+`medarc_rl/medarc_train.py` is the local runner for PRIME-RL SFT/RL. It resolves configs the same way as `medarc_slurm`, writes resolved configs, and launches local training.
 
-### Local Training CLI (`medarc_rl/medarc_train.py`)
-
-Typer-based local runner for PRIME-RL SFT/RL. It resolves configs the same way as `medarc_slurm`, writes resolved configs, and launches local training (`sft` / `torchrun` / `rl_local`).
-
-### RL Launcher (`medarc_rl/launchers/rl_local.py`)
-
-Modified version of PRIME-RL's `rl_local()` for shared-node environments. Handles GPU isolation via `CUDA_VISIBLE_DEVICES`, per-process cache separation, and coordinated multi-process lifecycle with thread-based monitoring.
-
-### Config System
+`medarc_rl/launchers/rl_local.py` is a modified PRIME-RL local RL launcher for shared-node environments. It handles GPU isolation via `CUDA_VISIBLE_DEVICES`, per-process cache separation, dynamic ports, and coordinated multi-process lifecycle.
 
 TOML-based configs with inheritance via PRIME-RL's `toml_files` mechanism. Example configs in `examples/`. Resolved configs are written to the output directory for reproducibility.
 
